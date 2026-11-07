@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -53,17 +54,28 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
     <div className="space-y-12">
       {groupByDay(events, now).map(([key, group]) => (
         <section key={key} aria-labelledby={`day-${key}`}>
-          <h2 id={`day-${key}`} className="mb-5 flex items-baseline gap-3 border-b-2 border-ink pb-2">
-            <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
-            <span className="text-base text-muted-foreground">{dayDate(key)}</span>
-          </h2>
-          <ol className={GRID}>
-            {group.map((e) => (
-              <li key={e.id}>
-                <EventCard event={e} now={now} />
-              </li>
-            ))}
-          </ol>
+          <details open className="group/day">
+            <summary className="mb-5 flex cursor-pointer list-none items-center gap-3 border-b-2 border-ink pb-2 group-[:not([open])]/day:mb-0 [&::-webkit-details-marker]:hidden">
+              <h2 id={`day-${key}`} className="flex items-baseline gap-3">
+                <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
+                <span className="text-base text-muted-foreground">{dayDate(key)}</span>
+              </h2>
+              <span className="ml-auto text-sm text-muted-foreground">
+                {group.length} {group.length === 1 ? "event" : "events"}
+              </span>
+              <ChevronDown
+                aria-hidden
+                className="size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
+              />
+            </summary>
+            <ol className={GRID}>
+              {group.map((e) => (
+                <li key={e.id}>
+                  <EventCard event={e} now={now} />
+                </li>
+              ))}
+            </ol>
+          </details>
         </section>
       ))}
     </div>
