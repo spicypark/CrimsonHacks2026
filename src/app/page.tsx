@@ -6,8 +6,9 @@ import { EventCard } from "@/components/events/event-card";
 import { FilterBar } from "@/components/events/filter-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Filters, parseFilters } from "@/lib/events/filters";
-import { dayDate, dayKey, dayLabel } from "@/lib/events/format";
-import { type EventView, queryEvents } from "@/lib/events/query";
+import { dayDate, dayLabel } from "@/lib/events/format";
+import { groupByDay } from "@/lib/events/grouping";
+import { queryEvents } from "@/lib/events/query";
 
 const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
 
@@ -84,17 +85,6 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
 
 /** Server components render once per request (after searchParams), so one clock read per render is stable. */
 const requestTime = () => Date.now();
-
-/** Groups by Utah calendar day; events already underway are listed under today. */
-function groupByDay(events: EventView[], now: number): [string, EventView[]][] {
-  const nowIso = new Date(now).toISOString();
-  const groups = new Map<string, EventView[]>();
-  for (const e of events) {
-    const key = dayKey(e.startsAt < nowIso ? nowIso : e.startsAt);
-    groups.set(key, [...(groups.get(key) ?? []), e]);
-  }
-  return [...groups.entries()];
-}
 
 const hasFilters = (f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
 
