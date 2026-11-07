@@ -1,13 +1,12 @@
 import { TZDate } from "@date-fns/tz";
 import { addDays, format } from "date-fns";
 import { z } from "zod";
-import { claudeAvailable, claudeJson } from "@/lib/ai/claude";
-import { generateJson } from "@/lib/ai/llm";
+import { claudeJson } from "@/lib/ai/claude";
 import { FiltersSchema } from "@/lib/events/filters";
 import { formatTime, priceLabel, VIBE_LABELS } from "@/lib/events/format";
 import { type EventView, matchesKeywords, queryEvents } from "@/lib/events/query";
 import { distanceM, geocode } from "@/lib/geo/geocode";
-import { score } from "@/lib/search/semantic";
+import { topicMatches } from "@/lib/search/topic";
 import { CATEGORIES, CATEGORY_LABELS, Category, VIBE_TAGS, VibeTag } from "@/shared/event";
 import { TIME_ZONE, utahLocalToIso } from "@/shared/time";
 
@@ -16,7 +15,7 @@ import { TIME_ZONE, utahLocalToIso } from "@/shared/time";
  * → an ordered itinerary of real events from the database.
  *
  *  1. Understand: AI turns the text into a time window + interests/filters (fallback: tonight, text as keywords).
- *  2. Shortlist: every event overlapping the window, ranked by meaning (embeddings) against the interests.
+ *  2. Shortlist: every event overlapping the window, ranked by topic match (Haiku-expanded terms) against the interests.
  *  3. Compose: AI picks 1–4 stops in order with arrive/leave times and a reason for each.
  *  4. Check: the server fixes times to fit the events and the window, drops overlaps and adds travel estimates.
  *     If the AI is unavailable, a greedy scheduler builds the plan from the ranking instead.
@@ -148,23 +147,16 @@ export async function planNight(request: string, now = new Date()): Promise<Nigh
 
 // ── AI ───────────────────────────────────────────────────────────────────────
 
-/**
- * Planner AI calls go to Claude Haiku when ANTHROPIC_API_KEY is set, and to the Gemini chain otherwise
- * (or when Claude fails). The JSON Schema goes in the system prompt; zod validates the reply.
- */
+/** Planner AI calls go to Claude Haiku. The JSON Schema goes in the system prompt; zod validates the reply. */
 async function askAi<T>(req: { task: string; system: string; prompt: string; schema: z.ZodType<T>; maxTokens: number; timeoutMs: number }): Promise<T> {
-  if (claudeAvailable()) {
-    try {
-      const schema = JSON.stringify(z.toJSONSchema(req.schema, { target: "draft-7" }));
-      return await claudeJson({
-        ...req,
-        system: `${req.system}\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON Schema:\n${schema}`,
-      });
-    } catch (e) {
-      console.error(`[plan] Claude ${req.task} failed, trying Gemini:`, (e as Error).message.slice(0, 300));
-    }
-  }
-  return generateJson({ task: req.task, system: req.system, prompt: req.prompt, schema: req.schema, interactive: true, timeoutMs: req.timeoutMs });
+  const schema = JSON.stringify(z.toJSONSchema(req.schema, { target: "draft-7" }));
+  return claudeJson({
+    ...req,
+    system: `${req.system}
+
+Reply with ONLY a JSON object (no prose, no code fence) matching this JSON Schema:
+${schema}`,
+  });
 }
 
 // ── 1. Understand ────────────────────────────────────────────────────────────
@@ -301,13 +293,13 @@ async function shortlist(i: Intent, window: { from: Date; to: Date }, point: { l
   });
   if (!events.length) return [];
 
-  // Relevance: best match over each thing they asked for (embeddings; keywords when embeddings are unavailable).
+  // Relevance: best match over each thing they asked for. A topic match (Haiku-expanded terms) beats any
+  // keyword score; events it doesn't match keep their keyword score.
   const relevance = new Map<string, number>();
   for (const phrase of i.interests.map((x) => x.toLowerCase().trim()).filter(Boolean)) {
-    const scored = await score(phrase, events).catch(() => null);
-    const byId = new Map(scored?.map((x) => [x.event.id, x.score]));
+    const matched = await topicMatches(phrase, events);
     for (const e of events) {
-      const s = byId.get(e.id) ?? keywordScore(phrase, e);
+      const s = matched?.has(e.id) ? TOPIC_MATCH_SCORE : keywordScore(phrase, e);
       relevance.set(e.id, Math.max(relevance.get(e.id) ?? 0, s));
     }
   }
@@ -329,7 +321,9 @@ const STOPWORDS = new Set(
   "the and for with want some something maybe then after before from near around tonight tomorrow night free like into what when where about just really have has my me i'm im our out fun thing things also".split(" "),
 );
 
-/** Without embeddings: share of the request's meaningful words found in the event (category name included). Range 0.3–0.7. */
+const TOPIC_MATCH_SCORE = 0.85;
+
+/** Keyword relevance: share of the request's meaningful words found in the event (category name included). Range 0.3–0.7. */
 function keywordScore(phrase: string, e: EventView): number {
   const words = phrase.split(/[^a-z0-9+&'-]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w) && !/^\d/.test(w));
   if (!words.length) return 0.5;

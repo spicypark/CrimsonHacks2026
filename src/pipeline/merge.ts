@@ -1,7 +1,7 @@
 import { between, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { cosine, fromBlob, generateJson, toBlob } from "@/lib/ai/llm";
+import { generateJson } from "@/lib/ai/llm";
 import { getDb, schema } from "@/lib/db/client";
 import { distanceM } from "@/lib/geo/geocode";
 import type { CandidateEvent } from "./extract";
@@ -9,13 +9,12 @@ import type { CandidateEvent } from "./extract";
 const WINDOW_MS = 3 * 3600e3;
 const NEAR_M = 500;
 const SAME = 0.85;
-const MAYBE = 0.75;
+/** Titles of the same event vary across sources ("Jazz Night" vs "Jazz Night w/ The Trio"), so Haiku settles a wide band. */
+const MAYBE = 0.5;
 
 export interface ReadyEvent extends CandidateEvent {
   endsAt: string;
   endsAtEstimated: boolean;
-  /** null when the embedding quota is exhausted; dedup then compares titles lexically. */
-  embedding: Float32Array | null;
 }
 
 const normVenue = (v: string | null) => (v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\bthe\b/g, "").trim();
@@ -29,8 +28,8 @@ function venuesMatch(a: string | null, b: string | null) {
 /**
  * Saves a candidate as a new event or merges it into an existing duplicate, and links the raw item.
  * Dedup: (1) block on ±3h start AND (≤500 m OR venue match), (2) similarity ≥ 0.85 = same,
- * (3) 0.75–0.85 → LLM tie-break. Similarity is embedding cosine when both sides have one,
- * otherwise title bigram overlap (Dice), so dedup keeps working without embeddings.
+ * (3) 0.5–0.85 → Claude Haiku tie-break. Similarity is title bigram overlap (Dice); the blocking step has
+ * already narrowed candidates to the same place and time, so a loose title match there is worth asking about.
  */
 export async function saveEvent(c: ReadyEvent, rawItemId: number): Promise<{ eventId: string; mergedInto: boolean; similarity?: number }> {
   const db = getDb();
@@ -55,7 +54,7 @@ export async function saveEvent(c: ReadyEvent, rawItemId: number): Promise<{ eve
 
   let best: { row: (typeof nearby)[number]; sim: number } | null = null;
   for (const row of nearby) {
-    const sim = c.embedding && row.embedding ? cosine(c.embedding, fromBlob(row.embedding)) : titleSimilarity(c.title, row.title);
+    const sim = titleSimilarity(c.title, row.title);
     if (!best || sim > best.sim) best = { row, sim };
   }
 
@@ -107,7 +106,6 @@ export async function saveEvent(c: ReadyEvent, rawItemId: number): Promise<{ eve
       priceText: c.priceText,
       imageUrl: c.imageUrl,
       confidence: c.confidence,
-      embedding: c.embedding ? toBlob(c.embedding) : null,
     })
     .run();
   link(id, rawItemId);

@@ -101,7 +101,7 @@ export function queryEvents(
   return views.map(({ createdAt: _, ...v }) => v);
 }
 
-/** Plain keyword match (every word must appear). Used when semantic search is unavailable. */
+/** Plain keyword match (every word must appear). Used when Claude is unavailable. */
 export { matchesKeywords };
 function matchesKeywords(q: string | undefined, haystack: string): boolean {
   if (!q) return true;

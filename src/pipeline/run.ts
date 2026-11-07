@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import pLimit from "p-limit";
-import { embedOrNull } from "@/lib/ai/llm";
 import { getDb, schema } from "@/lib/db/client";
 import { geocode, inRegion } from "@/lib/geo/geocode";
 import { DEFAULT_DURATION_MS, type RawItem } from "@/shared/event";
@@ -86,7 +85,7 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
   const markDone = (rowId: number, hash: string) =>
     db.update(schema.rawItems).set({ processedHash: hash }).where(eq(schema.rawItems.id, rowId)).run();
 
-  // Structured items: enrich in batches, then embed + save each batch together.
+  // Structured items: enrich in batches, then save each batch together.
   const structured = todo.filter((t) => t.item.event);
   for (let i = 0; i < structured.length; i += ENRICH_BATCH) {
     const chunk = structured.slice(i, i + ENRICH_BATCH);
@@ -100,7 +99,7 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
         if (!c) stats.dropped++;
         if (p) pending.push(p);
       }
-      await embedAndSave(pending, log, stats);
+      await saveAll(pending, log, stats);
       for (const t of chunk) markDone(t.rowId, t.hash);
     } catch (e) {
       stats.errors++;
@@ -126,7 +125,7 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
               const p = await prepare(c, t.rowId, log, stats);
               if (p) pending.push(p);
             }
-            await embedAndSave(pending, log, stats);
+            await saveAll(pending, log, stats);
             markDone(t.rowId, t.hash);
           } catch (e) {
             stats.errors++;
@@ -138,7 +137,7 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
 }
 
 interface Pending {
-  event: Omit<ReadyEvent, "embedding">;
+  event: ReadyEvent;
   rawItemId: number;
 }
 
@@ -171,12 +170,10 @@ async function prepare(c: CandidateEvent, rawItemId: number, log: Logger, stats:
   return { event: { ...c, startsAt: new Date(c.startsAt).toISOString(), endsAt, endsAtEstimated: estimatedEnd }, rawItemId };
 }
 
-/** One embedding request for the whole batch, then dedup-merge each event in order. */
-async function embedAndSave(pending: Pending[], log: Logger, stats: RunStats) {
-  if (!pending.length) return;
-  const vectors = await embedOrNull(pending.map(({ event: c }) => `${c.title}. ${c.venueName ?? ""}. ${c.summary}`));
-  for (const [i, { event: c, rawItemId }] of pending.entries()) {
-    const res = await saveEvent({ ...c, embedding: vectors[i] }, rawItemId);
+/** Dedup-merges each event in the batch, in order. */
+async function saveAll(pending: Pending[], log: Logger, stats: RunStats) {
+  for (const { event: c, rawItemId } of pending) {
+    const res = await saveEvent(c, rawItemId);
     if (res.mergedInto) {
       stats.merged++;
       log.info("merge", `Merged "${c.title}" into existing event (similarity ${res.similarity?.toFixed(2)})`, { eventId: res.eventId });

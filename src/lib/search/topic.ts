@@ -43,6 +43,22 @@ function termPattern(terms: string[]): RegExp {
 const haystack = (e: EventView) =>
   `${e.title} ${e.summary} ${e.description} ${e.venueName ?? ""} ${e.category ? CATEGORY_LABELS[e.category] : ""}`;
 
+/**
+ * Ids of the events matching a topic by meaning (Haiku-expanded terms), or null when Claude is unavailable
+ * or the call fails, so the caller can fall back to its own keyword scoring.
+ */
+export async function topicMatches(q: string, events: EventView[]): Promise<Set<string> | null> {
+  const query = q.toLowerCase().trim();
+  if (!claudeAvailable() || !query) return null;
+  try {
+    const pattern = termPattern(await expand(query));
+    return new Set(events.filter((e) => pattern.test(haystack(e))).map((e) => e.id));
+  } catch (e) {
+    console.error("[topic] term expansion failed:", (e as Error).message.slice(0, 200));
+    return null;
+  }
+}
+
 export async function topicFilter(q: string, events: EventView[]): Promise<EventView[]> {
   const query = q.toLowerCase().trim();
   if (!events.length) return [];
