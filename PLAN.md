@@ -19,7 +19,7 @@
 | Framework | **Next.js 16** (App Router) · **React 19** · **Tailwind CSS 4** · shadcn/ui |
 | Database | **SQLite** via `better-sqlite3` + **Drizzle ORM** |
 | Vector search | Embeddings stored as BLOBs in SQLite, cosine similarity in plain TS (no extensions) |
-| AI | **Gemini** free tier (extraction, tagging, summaries, NL query parsing, embeddings); **Groq** as fast fallback |
+| AI | **Claude Haiku 5.5** for everything (extraction, tagging, summaries, dedupe tie-breaks, NL search, Plan my night); no embeddings |
 | Pipeline | Separate worker process writing to SQLite; admin page streams `pipeline_log` over **SSE** |
 | Map | **MapLibre GL** + **OpenFreeMap** tiles (no key) |
 | Geo / Utah data | **Nominatim** geocoding (cached, 1 req/s, Wasatch bbox) · **Open-Meteo** weather + air quality (no key) |
@@ -177,7 +177,7 @@ Open-Meteo forecast + air-quality for outdoor-tagged events within 7 days → wa
 - **iCal/RSS/web:** SLC Public Library, U of U events calendar, Visit Salt Lake, plus a few venue calendars (verify each feed URL at build time)
 
 ## 8. Environment / keys
-`GEMINI_API_KEY` · `GROQ_API_KEY` · `TICKETMASTER_API_KEY` · `SEATGEEK_CLIENT_ID` · `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` · `ADMIN_SECRET` · `DATABASE_PATH=/data/pullup.db`
+`ANTHROPIC_API_KEY` · `TICKETMASTER_API_KEY` · `SEATGEEK_CLIENT_ID` · `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` · `ADMIN_SECRET` · `DATABASE_PATH=/data/pullup.db`
 No key needed: OpenFreeMap, Nominatim (custom User-Agent required), Open-Meteo.
 **Get every key in the first 30 minutes** — SeatGeek and Reddit approvals can lag.
 

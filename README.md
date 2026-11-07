@@ -33,5 +33,5 @@ This replaces the deployment's sources and events (pipeline logs are kept). Its 
 - `src/pipeline/connectors/` — one adapter per source type (`Connector` interface in `types.ts`)
 - `src/pipeline/` — orchestrator (`run.ts`), AI extraction, dedup merge, worker
 - `src/lib/events/` — the single filter/sort/query module used by list, map, search and API
-- `src/lib/ai/llm.ts` — typed JSON generation (Gemini, Groq fallback) + embeddings
+- `src/lib/ai/` — Claude Haiku 5.5 client (`claude.ts`) and typed JSON generation for the pipeline (`llm.ts`)
 - `src/lib/db/` — Drizzle schema and SQLite client (migrations in `drizzle/`)
