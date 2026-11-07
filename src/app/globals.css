@@ -187,6 +187,114 @@
   font-size: 10px;
 }
 
+/* Live map pins, colour-coded by popularity tier. The outer button is positioned by MapLibre,
+   so the pop-in/out animation runs on the inner dot. The map is full colour in both themes,
+   so the pins deliberately have no dark-mode variant either. */
+.live-pin,
+.live-pin-swatch {
+  --pin: var(--dust);
+  --pin-ring: var(--carbon);
+  --pin-size: 14px;
+}
+[data-tier="hot"] { --pin: var(--paprika); --pin-size: 22px; }
+[data-tier="popular"] { --pin: #f39b97; --pin-size: 17px; }
+[data-tier="quiet"] { --pin: var(--dust); --pin-size: 14px; }
+[data-tier="unrated"] { --pin: var(--floral); --pin-size: 11px; }
+
+.live-pin {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.live-pin-dot {
+  display: block;
+  width: var(--pin-size);
+  height: var(--pin-size);
+  border-radius: 9999px;
+  background: var(--pin);
+  border: 2px solid var(--pin-ring);
+  box-shadow: 0 1px 4px rgb(37 36 34 / 0.45);
+  animation: pin-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: transform 120ms ease-out;
+}
+.live-pin:hover .live-pin-dot,
+.live-pin:focus-visible .live-pin-dot { transform: scale(1.25); }
+.live-pin.is-leaving .live-pin-dot { animation: pin-out 180ms ease-in both; }
+[data-tier="hot"] .live-pin-dot { box-shadow: 0 0 0 4px color-mix(in oklab, var(--paprika) 30%, transparent), 0 1px 4px rgb(37 36 34 / 0.45); }
+
+.live-pin-swatch {
+  display: inline-block;
+  flex: none;
+  width: var(--pin-size);
+  height: var(--pin-size);
+  border-radius: 9999px;
+  background: var(--pin);
+  border: 2px solid var(--pin-ring);
+  vertical-align: middle;
+}
+
+@keyframes pin-in {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes pin-out {
+  to { transform: scale(0); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-pin-dot, .live-pin.is-leaving .live-pin-dot { animation-duration: 1ms; }
+}
+
+/* Popup themed to the app instead of MapLibre's white default. */
+.live-popup .maplibregl-popup-content {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border-radius: var(--radius);
+  padding: 12px 28px 12px 14px;
+  box-shadow: 0 6px 20px rgb(37 36 34 / 0.3);
+  font: inherit;
+}
+.live-popup .maplibregl-popup-tip { border-top-color: var(--popover) !important; border-bottom-color: var(--popover) !important; }
+.live-popup .maplibregl-popup-close-button { color: var(--muted-foreground); font-size: 18px; width: 28px; height: 28px; }
+.live-popup-body { display: grid; gap: 2px; font-size: 13px; color: var(--muted-foreground); }
+.live-popup-title { color: var(--popover-foreground); font-size: 15px; font-weight: 700; line-height: 1.25; margin-bottom: 4px; }
+.live-popup-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.live-popup-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.live-popup-meta .live-pin-swatch { --pin-size: 10px; }
+
+/* Time slider: the native range input sits invisibly over the density bars; only the thumb shows. */
+.time-range { appearance: none; background: transparent; margin: 0; height: auto; }
+.time-range::-webkit-slider-runnable-track { height: 100%; background: transparent; }
+.time-range::-moz-range-track { height: 100%; background: transparent; }
+.time-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 13px; /* (44px track − 18px thumb) / 2; WebKit top-aligns thumbs on custom tracks */
+  border-radius: 9999px;
+  background: var(--paprika);
+  border: 3px solid var(--paper);
+  box-shadow: 0 0 0 1px var(--paprika), 0 2px 6px rgb(37 36 34 / 0.4);
+  cursor: grab;
+}
+.time-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px; /* Firefox adds the border outside: 18px total, like WebKit */
+  border-radius: 9999px;
+  background: var(--paprika);
+  border: 3px solid var(--paper);
+  box-shadow: 0 0 0 1px var(--paprika), 0 2px 6px rgb(37 36 34 / 0.4);
+  cursor: grab;
+}
+.time-range:active::-webkit-slider-thumb { cursor: grabbing; }
+.time-range:focus-visible { outline: none; }
+.time-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--ring), 0 2px 6px rgb(37 36 34 / 0.4); }
+.time-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--ring); }
+
 /* Logo: the sun pulls up over the ridge once on load, and nudges up again on hover. */
 @keyframes sun-rise {
   from { transform: translateY(9px); }
