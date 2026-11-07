@@ -77,6 +77,9 @@ const MIN_OVERLAP_MS = 40 * 60_000;
 const PLACE_RADIUS_KM = 25;
 const MAX_STOPS = 4;
 
+/** A same-day plan with less free time than this left (it's 11 PM and they said "tonight") moves to tomorrow. */
+const MIN_WINDOW_MS = 90 * 60_000;
+
 export async function planNight(request: string, now = new Date()): Promise<NightPlan> {
   let ai = true;
   let intent: Intent;
@@ -88,9 +91,46 @@ export async function planNight(request: string, now = new Date()): Promise<Nigh
     intent = fallbackIntent(request, now);
   }
 
-  const window = toWindow(intent, now);
   const point = intent.place ? await geocode(intent.place).catch(() => null) : null;
-  const ranked = await shortlist(intent, window, point);
+  let window = toWindow(intent, now);
+  let ranked = await shortlist(intent, window, point);
+
+  // Late in the evening "tonight" leaves a sliver of time (or nothing still starting). Rather than a
+  // one-stop plan for the last hour, or "nothing fits", plan the same hours tomorrow and say so.
+  let note = "";
+  const today = format(new TZDate(now, TIME_ZONE), "yyyy-MM-dd");
+  if (intent.date === today && (+window.to - +window.from < MIN_WINDOW_MS || !ranked.length)) {
+    const local = new TZDate(now, TIME_ZONE);
+    // At 11 PM the AI reads "tonight" as "from now" (start 23:00); tomorrow that should be the evening default.
+    const [h, m] = intent.start.split(":").map(Number);
+    const startIsNow = Math.abs(h * 60 + m - (local.getHours() * 60 + local.getMinutes())) <= 45;
+    const next = {
+      ...intent,
+      date: format(addDays(local, 1), "yyyy-MM-dd"),
+      start: startIsNow ? "17:00" : intent.start,
+    };
+    const nextWindow = toWindow(next, now);
+    const nextRanked = await shortlist(next, nextWindow, point);
+    if (nextRanked.length) {
+      [intent, window, ranked] = [next, nextWindow, nextRanked];
+      note = `Tonight is nearly over, so this is a plan for tomorrow (${format(new TZDate(window.from, TIME_ZONE), "EEEE")}).`;
+    }
+  }
+
+  const plan = await build(request, intent, window, ranked, point, ai, now);
+  if (note) plan.summary = `${note} ${plan.summary}`;
+  return plan;
+}
+
+async function build(
+  request: string,
+  intent: Intent,
+  window: { from: Date; to: Date },
+  ranked: Ranked[],
+  point: { lat: number; lng: number } | null,
+  ai: boolean,
+  now: Date,
+): Promise<NightPlan> {
 
   const base = {
     request,
@@ -113,18 +153,29 @@ export async function planNight(request: string, now = new Date()): Promise<Nigh
   if (ai) {
     try {
       const composed = await compose(request, intent, window, ranked.map((r) => r.event), now);
-      const stops = schedule(composed.stops.map((s) => ({ ...s, event: ranked[s.event - 1]?.event })), window, intent.date);
-      if (stops.length) {
-        const used = new Set(stops.map((s) => s.event.id));
+      const timed = schedule(composed.stops.map((s) => ({ ...s, event: ranked[s.event - 1]?.event })), window, intent.date);
+      if (timed.length) {
+        const aiIds = new Set(timed.map((s) => s.event.id));
         const pick = (nums: number[]) =>
-          [...new Set(nums)].map((n) => ranked[n - 1]?.event).filter((e): e is EventView => !!e && !used.has(e.id));
+          [...new Set(nums)].map((n) => ranked[n - 1]?.event).filter((e): e is EventView => !!e && !aiIds.has(e.id));
         // Stops the time check removed lead the swaps; the AI's title and summary would still mention them.
         const dropped = pick(composed.stops.map((s) => s.event));
-        const backups = [...dropped, ...pick(composed.backups).filter((e) => !dropped.includes(e))];
+        // Losing a stop shouldn't leave a hole in the night: fill the freed time from the AI's swaps, then the ranking.
+        let full = stayForShows(timed, window);
+        if (dropped.length) {
+          const swaps = composed.backups.map((n) => ranked[n - 1]).filter((r): r is Ranked => !!r);
+          const target = Math.min(Math.max(composed.stops.length, 1), wanted);
+          full = fillGaps(full, [...swaps, ...ranked].filter((r) => !dropped.includes(r.event)), window, target);
+        }
+        const stops = withTravel(fitTravel(stayForShows(full, window)));
+        const used = new Set(stops.map((s) => s.event.id));
+        const added = stops.filter((s) => !aiIds.has(s.event.id)).map((s) => s.event.title);
+        const backups = [...dropped, ...pick(composed.backups).filter((e) => !dropped.includes(e) && !used.has(e.id))];
         const title = !dropped.length ? composed.title : stops.length > 1 ? `${stops.length} stops for your night` : "A pick for your night";
         const summary = !dropped.length
           ? composed.summary
-          : `${dropped.map((e) => e.title).join(" and ")} didn't fit without arriving late or overlapping, so ${dropped.length > 1 ? "they're" : "it's"} under swap options.`;
+          : `${dropped.map((e) => e.title).join(" and ")} didn't fit without arriving late or overlapping, so ${dropped.length > 1 ? "they're" : "it's"} under swap options` +
+            (added.length ? `; ${added.join(" and ")} ${added.length > 1 ? "fill" : "fills"} that time instead.` : ".");
         return { ...base, title, summary, stops, backups: fillBackups(backups, ranked, used), ai };
       }
       console.warn("[plan] composer returned no usable stops, using greedy schedule");
@@ -150,21 +201,44 @@ export async function planNight(request: string, now = new Date()): Promise<Nigh
 
 /**
  * Planner AI calls go to Claude Haiku when ANTHROPIC_API_KEY is set, and to the Gemini chain otherwise
- * (or when Claude fails). The JSON Schema goes in the system prompt; zod validates the reply.
+ * (or when Claude fails). Claude gets structured outputs, so its JSON always parses: the composer's free-text
+ * "why" sentences used to break hand-written JSON (an unquoted "Five Bags of Popcorn"). zod still validates the
+ * reply, so length and range limits the API's schema subset can't express are checked there. If the API rejects
+ * the schema, the prompt-only form is tried before Gemini.
  */
 async function askAi<T>(req: { task: string; system: string; prompt: string; schema: z.ZodType<T>; maxTokens: number; timeoutMs: number }): Promise<T> {
   if (claudeAvailable()) {
+    const jsonSchema = z.toJSONSchema(req.schema, { target: "draft-7" }) as Record<string, unknown>;
     try {
-      const schema = JSON.stringify(z.toJSONSchema(req.schema, { target: "draft-7" }));
+      return await claudeJson({ ...req, jsonSchema: outputSchema(jsonSchema) as Record<string, unknown> });
+    } catch (e) {
+      console.error(`[plan] Claude ${req.task} (structured) failed:`, (e as Error).message.slice(0, 300));
+    }
+    try {
       return await claudeJson({
         ...req,
-        system: `${req.system}\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON Schema:\n${schema}`,
+        system: `${req.system}\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON Schema:\n${JSON.stringify(jsonSchema)}`,
       });
     } catch (e) {
       console.error(`[plan] Claude ${req.task} failed, trying Gemini:`, (e as Error).message.slice(0, 300));
     }
   }
   return generateJson({ task: req.task, system: req.system, prompt: req.prompt, schema: req.schema, interactive: true, timeoutMs: req.timeoutMs });
+}
+
+/**
+ * zod's JSON Schema → the core subset structured outputs accept: types, enums, required, nullable unions.
+ * Length, size, range and pattern keywords are dropped (zod enforces them after parsing), and every object is
+ * closed with additionalProperties: false.
+ */
+function outputSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(outputSchema);
+  if (!node || typeof node !== "object") return node;
+  const DROP = new Set(["$schema", "maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "pattern", "format"]);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node)) if (!DROP.has(k)) out[k] = outputSchema(v);
+  if (out.type === "object") out.additionalProperties = false;
+  return out;
 }
 
 // ── 1. Understand ────────────────────────────────────────────────────────────
@@ -271,15 +345,20 @@ function toWindow(i: Intent, now: Date): { from: Date; to: Date } {
 // ── 2. Shortlist ─────────────────────────────────────────────────────────────
 
 /**
- * Calendars list "all day" things (library crafts, exhibits) as midnight to 11:59 PM, which would let a plan send
- * someone there at 11 PM. For planning, an all-day listing is treated as open about 10 AM–7 PM on the plan's day.
+ * Long listings aren't open the whole time they span. Calendars list "all day" things (library crafts, exhibits)
+ * as midnight to 11:59 PM, and multi-day ones ("ScienceFest", Sat 10 AM – Sun 5 PM) as one long block, either of
+ * which would let a plan send someone there at 11 PM. For planning, a listing of 12 h or more is open on the plan's
+ * day from its listed start time to its listed end time (10 AM–7 PM when those are midnight or out of order).
  */
 function withOpenHours(e: EventView, day: string): EventView {
   const start = new TZDate(e.startsAt, TIME_ZONE);
-  const allDay = start.getHours() === 0 && start.getMinutes() === 0 && +new Date(e.endsAt) - +start >= 12 * 3600e3;
-  if (!allDay) return e;
-  const open = utahLocalToIso(day, "10:00:00");
-  const close = utahLocalToIso(day, "19:00:00");
+  const end = new TZDate(e.endsAt, TIME_ZONE);
+  if (+end - +start < 12 * 3600e3) return e;
+  const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:00`;
+  let [openAt, closeAt] = [hhmm(start), hhmm(end)];
+  if (openAt === "00:00:00" || closeAt <= openAt || closeAt >= "23:59:00") [openAt, closeAt] = ["10:00:00", "19:00:00"];
+  const open = utahLocalToIso(day, openAt);
+  const close = utahLocalToIso(day, closeAt);
   // ISO UTC strings compare lexically; stay inside the listing's own dates.
   return { ...e, startsAt: open > e.startsAt ? open : e.startsAt, endsAt: close < e.endsAt ? close : e.endsAt, endsAtEstimated: true };
 }
@@ -287,7 +366,12 @@ function withOpenHours(e: EventView, day: string): EventView {
 interface Ranked {
   event: EventView;
   score: number;
+  /** The interest phrase this event matched best, for the no-AI "why". */
+  matched: string | null;
 }
+
+/** A show that started more than this long before they're free is already underway: not plannable. */
+const UNDERWAY_MS = 15 * 60_000;
 
 async function shortlist(i: Intent, window: { from: Date; to: Date }, point: { lat: number; lng: number } | null): Promise<Ranked[]> {
   const filters = FiltersSchema.parse({});
@@ -297,30 +381,32 @@ async function shortlist(i: Intent, window: { from: Date; to: Date }, point: { l
   const day = format(new TZDate(window.from, TIME_ZONE), "yyyy-MM-dd");
   const events = queryEvents(filters, { window }).map((e) => withOpenHours(e, day)).filter((e) => {
     const overlap = Math.min(+new Date(e.endsAt), +window.to) - Math.max(+new Date(e.startsAt), +window.from);
-    return overlap >= MIN_OVERLAP_MS && (e.distanceKm == null || !point || e.distanceKm <= PLACE_RADIUS_KM);
+    // A concert that began at 11 AM can't be the plan for someone free from noon ("arrive an hour into the show").
+    const underway = startsMatter(e) && +new Date(e.startsAt) < +window.from - UNDERWAY_MS;
+    return overlap >= MIN_OVERLAP_MS && !underway && (e.distanceKm == null || !point || e.distanceKm <= PLACE_RADIUS_KM);
   });
   if (!events.length) return [];
 
   // Relevance: best match over each thing they asked for (embeddings; keywords when embeddings are unavailable).
-  const relevance = new Map<string, number>();
+  const relevance = new Map<string, { score: number; phrase: string }>();
   for (const phrase of i.interests.map((x) => x.toLowerCase().trim()).filter(Boolean)) {
     const scored = await score(phrase, events).catch(() => null);
     const byId = new Map(scored?.map((x) => [x.event.id, x.score]));
     for (const e of events) {
       const s = byId.get(e.id) ?? keywordScore(phrase, e);
-      relevance.set(e.id, Math.max(relevance.get(e.id) ?? 0, s));
+      if (s > (relevance.get(e.id)?.score ?? -Infinity)) relevance.set(e.id, { score: s, phrase });
     }
   }
 
   const ranked = events.map((e) => {
-    let s = relevance.get(e.id) ?? 0.5;
+    let s = relevance.get(e.id)?.score ?? 0.5;
     if (e.category && i.categories.includes(e.category)) s += 0.08;
     s += 0.03 * i.vibeTags.filter((v) => e.vibeTags.includes(v)).length;
     s += 0.04 * Math.min(1, Math.max(0, e.buzzScore ?? 0));
     if (e.distanceKm != null) s -= 0.004 * Math.max(0, e.distanceKm - 3);
     // Month-long exhibits overlap every window; a real happening tonight is usually the better pick.
     if (+new Date(e.endsAt) - +new Date(e.startsAt) > 12 * 3600e3) s -= 0.04;
-    return { event: e, score: s };
+    return { event: e, score: s, matched: relevance.get(e.id)?.phrase ?? null };
   });
   return ranked.sort((a, b) => b.score - a.score).slice(0, SHORTLIST);
 }
@@ -385,7 +471,7 @@ ${list}`,
 type Draft = { event: EventView | undefined; arrive: string; leave: string; why: string };
 
 /** Turns the AI's draft into a valid schedule: real times, inside the event and the window, no overlaps. */
-function schedule(drafts: Draft[], window: { from: Date; to: Date }, date: string): PlanStop[] {
+function schedule(drafts: Draft[], window: { from: Date; to: Date }, date: string): Timed[] {
   const seen = new Set<string>();
   const timed = drafts
     .filter((d): d is Draft & { event: EventView } => !!d.event && !seen.has(d.event.id) && !!seen.add(d.event.id))
@@ -395,19 +481,19 @@ function schedule(drafts: Draft[], window: { from: Date; to: Date }, date: strin
       const end = +new Date(d.event.endsAt) + (d.event.endsAtEstimated ? 90 * 60_000 : 0);
       const lo = Math.max(+window.from, start - 30 * 60_000);
       const hi = Math.min(+window.to, end);
-      const arrive = clamp(atLocal(date, d.arrive, window) ?? Math.max(start, +window.from), lo, hi);
+      let arrive = clamp(atLocal(date, d.arrive, window) ?? Math.max(start, +window.from), lo, hi);
+      // The model often gets show arithmetic wrong (arriving at 3:50 for a 3:00 show). Shortlisted shows haven't
+      // started yet, so the fix is always the same: be there 10 minutes before the start.
+      if (startsMatter(d.event) && arrive > start) arrive = Math.max(lo, start - 10 * 60_000);
       let leave = clamp(atLocal(date, d.leave, window) ?? hi, arrive, hi);
       // Too short to be worth it: keep the planned arrival and stay as long as the event allows (up to 90 min).
       if (leave - arrive < 20 * 60_000) leave = Math.min(hi, arrive + 90 * 60_000);
-      // Walking into a show long after it started isn't a plan; drop the stop (it stays available as a swap).
-      const late = startsMatter(d.event) && arrive > Math.max(start, +window.from) + 30 * 60_000;
-      if (late) console.warn(`[plan] dropped "${d.event.title}": AI arrival is after the show started`);
-      return { event: d.event, why: d.why, arrive, leave, late };
+      return { event: d.event, why: d.why, arrive, leave };
     })
-    .filter((s) => !s.late && s.leave - s.arrive >= 20 * 60_000)
+    .filter((s) => s.leave - s.arrive >= 20 * 60_000 && !(startsMatter(s.event) && s.arrive > +new Date(s.event.startsAt)))
     .sort((a, b) => a.arrive - b.arrive);
 
-  const kept: typeof timed = [];
+  const kept: Timed[] = [];
   for (const s of timed) {
     const prev = kept.at(-1);
     if (prev && s.arrive < prev.leave) {
@@ -421,32 +507,111 @@ function schedule(drafts: Draft[], window: { from: Date; to: Date }, date: strin
     }
     kept.push(s);
   }
-  return withTravel(kept.slice(0, MAX_STOPS));
+  return kept.slice(0, MAX_STOPS);
+}
+
+const byArrive = (a: Timed, b: Timed) => a.arrive - b.arrive;
+
+/**
+ * Adds events from `pool`, best first, into the free time around `stops` until there are `wanted` stops.
+ * Each addition keeps the drive to its neighbours, stays in the same area (≤ 30 min hops), arrives before a show
+ * starts and stays at least 40 minutes at a drop-in. Used to plug a hole the time check left, and as the whole
+ * scheduler when the AI is unavailable.
+ */
+function fillGaps(stops: Timed[], pool: Ranked[], window: { from: Date; to: Date }, wanted: number): Timed[] {
+  const out = [...stops].sort(byArrive);
+  for (const r of pool) {
+    if (out.length >= wanted) break;
+    const e = r.event;
+    if (out.some((s) => s.event.id === e.id || (minutesBetween(s.event, e) ?? 0) > 30)) continue;
+    const slot = place(e, out, window);
+    if (!slot) continue;
+    out.push({ event: e, why: reasonFor(r), ...slot });
+    out.sort(byArrive);
+  }
+  return out;
+}
+
+/** The first gap in `stops` (time-ordered) that `e` fits into, with travel either side; null if none. */
+function place(e: EventView, stops: Timed[], window: { from: Date; to: Date }): { arrive: number; leave: number } | null {
+  const start = +new Date(e.startsAt);
+  const end = +new Date(e.endsAt);
+  const drive = (a: EventView, b: EventView) => (minutesBetween(a, b) ?? 15) * 60_000;
+  for (let i = 0; i <= stops.length; i++) {
+    const from = i === 0 ? +window.from : stops[i - 1].leave + drive(stops[i - 1].event, e);
+    const to = i === stops.length ? +window.to : stops[i].arrive - drive(e, stops[i].event);
+    if (startsMatter(e)) {
+      const arrive = Math.max(from, start - 10 * 60_000);
+      const leave = Math.min(end, to);
+      // On time, and either the whole show or at least an hour of it.
+      if (arrive <= start && leave >= Math.min(end, arrive + 60 * 60_000)) return { arrive, leave };
+    } else {
+      const arrive = Math.max(from, start);
+      const leave = Math.min(end, to, arrive + 90 * 60_000);
+      if (leave - arrive >= 40 * 60_000) return { arrive, leave };
+    }
+  }
+  return null;
+}
+
+/**
+ * Leaving a concert 45 minutes in only made sense for a next stop that has since been dropped. Shows run to their
+ * end (or until it's time to drive to the next stop, or the window closes).
+ */
+function stayForShows(stops: Timed[], window: { from: Date; to: Date }): Timed[] {
+  stops.forEach((s, n) => {
+    if (!startsMatter(s.event)) return;
+    const next = stops[n + 1];
+    const drive = next ? (minutesBetween(s.event, next.event) ?? 15) * 60_000 : 0;
+    const until = Math.min(+new Date(s.event.endsAt), +window.to, next ? next.arrive - drive : Infinity);
+    if (until > s.leave) s.leave = until;
+  });
+  return stops;
+}
+
+type Timed = { event: EventView; why: string; arrive: number; leave: number };
+
+/**
+ * Makes room for the drive between stops where the schedule allows it: leave a drop-in earlier, or arrive at a
+ * drop-in later, keeping at least 30 minutes at each. Shows keep their times; a gap that still can't fit the
+ * drive is left for `withTravel` to flag as tight.
+ */
+function fitTravel(stops: Timed[]): Timed[] {
+  const MIN_STAY = 30 * 60_000;
+  for (let n = 1; n < stops.length; n++) {
+    const [prev, s] = [stops[n - 1], stops[n]];
+    const drive = minutesBetween(prev.event, s.event);
+    if (drive == null) continue;
+    let short = prev.leave + drive * 60_000 - s.arrive;
+    if (short <= 0) continue;
+    if (isDropIn(prev.event)) {
+      const cut = Math.min(short, prev.leave - prev.arrive - MIN_STAY);
+      if (cut > 0) [prev.leave, short] = [prev.leave - cut, short - cut];
+    }
+    if (short > 0 && isDropIn(s.event)) {
+      const push = Math.min(short, s.leave - s.arrive - MIN_STAY);
+      if (push > 0) s.arrive += push;
+    }
+  }
+  return stops;
+}
+
+/** No-AI reason for a stop: what it matched and the practical bits, then the listing's own summary. */
+function reasonFor(r: Ranked): string {
+  const e = r.event;
+  const bits = [r.matched && r.matched.length < 50 ? `Closest match for "${r.matched}"` : "A good fit for your window"];
+  if (e.isFree) bits.push("free");
+  if (e.venueName) bits.push(`at ${e.venueName}`);
+  const first = e.summary.split(/(?<=[.!?])\s/)[0]?.slice(0, 160) ?? "";
+  return `${bits.join(", ")}. ${first}`.trim();
 }
 
 /** Without AI: take the best-ranked events that fit around each other, then put them in time order. */
 function greedy(ranked: Ranked[], window: { from: Date; to: Date }, wanted: number): PlanStop[] {
-  const picked: { event: EventView; why: string; arrive: number; leave: number }[] = [];
-  for (const { event: e } of ranked) {
-    if (picked.length >= wanted) break;
-    const arrive = Math.max(+new Date(e.startsAt), +window.from);
-    const leave = Math.min(+new Date(e.endsAt), +window.to, isFlexible(e) ? arrive + 90 * 60_000 : Infinity);
-    const gap = 20 * 60_000;
-    // Keep the night in one area: no hop longer than ~30 min.
-    if (picked.some((p) => (minutesBetween(p.event, e) ?? 0) > 30)) continue;
-    const clashes = picked.filter((p) => arrive < p.leave + gap && leave + gap > p.arrive);
-    if (clashes.length) {
-      // One earlier drop-in can be cut short (keeping at least 40 min there) to make room; otherwise skip this event.
-      const [p] = clashes;
-      if (clashes.length === 1 && p.arrive < arrive && isDropIn(p.event) &&arrive - gap - p.arrive >= 40 * 60_000) p.leave = arrive - gap;
-      else continue;
-    }
-    picked.push({ event: e, why: e.summary.slice(0, 200), arrive, leave });
-  }
-  return withTravel(picked.sort((a, b) => a.arrive - b.arrive));
+  return withTravel(fitTravel(fillGaps([], ranked, window, wanted)));
 }
 
-function withTravel(stops: { event: EventView; why: string; arrive: number; leave: number }[]): PlanStop[] {
+function withTravel(stops: Timed[]): PlanStop[] {
   return stops.map((s, n) => {
     const prev = stops[n - 1];
     const a = prev?.event;
@@ -479,8 +644,11 @@ function driveEstimate(km: number): { km: number; minutes: number } {
 /** Drop-in style: long, open-ended, or the end time is only an estimate. */
 const isFlexible = (e: EventView) => e.endsAtEstimated || +new Date(e.endsAt) - +new Date(e.startsAt) > 4 * 3600e3;
 
-/** A show, game or talk: the start time matters (unlike markets, exhibits, open hours). */
-const SHOW_CATEGORIES = new Set(["music", "arts-culture", "sports", "learning-talks", "family", "nightlife"]);
+/**
+ * A show, game or talk: the start time matters (unlike markets, exhibits, open hours). Nightlife (club nights,
+ * DJ sets, bar events) is left out: turning up an hour or two after doors is normal there.
+ */
+const SHOW_CATEGORIES = new Set(["music", "arts-culture", "sports", "learning-talks", "family"]);
 const startsMatter = (e: EventView) =>
   !!e.category && SHOW_CATEGORIES.has(e.category) && +new Date(e.endsAt) - +new Date(e.startsAt) <= 5 * 3600e3;
 

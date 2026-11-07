@@ -22,6 +22,13 @@ export async function claudeJson<T>(req: {
   maxTokens: number;
   /** Per-call timeout override (ms); default 8 s. */
   timeoutMs?: number;
+  /** Recovers a usable value from a reply cut off at maxTokens; return null to fail as usual. */
+  salvage?: (text: string) => T | null;
+  /**
+   * Constrain the reply to this JSON Schema (structured outputs). Costs a few hundred input tokens, so it's for
+   * long replies where hand-written JSON breaks (an unescaped quote in a sentence), not for tiny search calls.
+   */
+  jsonSchema?: Record<string, unknown>;
 }): Promise<T> {
   client ??= new Anthropic({ timeout: 8_000, maxRetries: 1 });
   const res = await client.messages.create(
@@ -32,6 +39,7 @@ export async function claudeJson<T>(req: {
       thinking: { type: "disabled" },
       system: req.system,
       messages: [{ role: "user", content: req.prompt }],
+      ...(req.jsonSchema ? { output_config: { format: { type: "json_schema" as const, schema: req.jsonSchema } } } : {}),
     },
     req.timeoutMs ? { timeout: req.timeoutMs } : undefined,
   );
@@ -42,8 +50,12 @@ export async function claudeJson<T>(req: {
   console.log(`[claude] ${req.task}: ${res.usage.input_tokens} in / ${res.usage.output_tokens} out`);
 
   if (res.stop_reason === "refusal") throw new Error(`${req.task}: refused`);
-  if (res.stop_reason === "max_tokens") throw new Error(`${req.task}: reply cut off at ${req.maxTokens} tokens`);
   const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  if (res.stop_reason === "max_tokens") {
+    const rescued = req.salvage?.(text);
+    if (rescued != null) return req.schema.parse(rescued);
+    throw new Error(`${req.task}: reply cut off at ${req.maxTokens} tokens`);
+  }
   // Take the outermost {...}, tolerating a code fence or a stray sentence around it.
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");

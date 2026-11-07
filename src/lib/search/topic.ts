@@ -25,11 +25,20 @@ const CACHE_MAX = 500;
 async function expand(query: string): Promise<string[]> {
   const hit = cache.get(query);
   if (hit) return hit;
-  const { t } = await claudeJson({ task: "terms", system: SYSTEM, prompt: query, schema: Terms, maxTokens: 60 });
+  // Replies run 40–60 tokens, so a 60-token cap cut longer topics ("stand up comedy") off mid-JSON → zero results.
+  const { t } = await claudeJson({ task: "terms", system: SYSTEM, prompt: query, schema: Terms, maxTokens: 160, salvage: salvageTerms });
   const terms = [...new Set([query, ...t].map((x) => x.toLowerCase().trim()).filter((x) => x.length > 1))].slice(0, 10);
   if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);
   cache.set(query, terms);
   return terms;
+}
+
+/** A reply cut off mid-list still names usable terms: keep every complete quoted string inside the array. */
+function salvageTerms(text: string): z.infer<typeof Terms> | null {
+  const open = text.indexOf("[");
+  if (open < 0) return null;
+  const t = [...text.slice(open + 1).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+  return t.length ? { t } : null;
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -52,7 +61,9 @@ export async function topicFilter(q: string, events: EventView[]): Promise<Event
       terms = await expand(query);
     } catch (e) {
       console.error("[search] term expansion failed, using keywords:", (e as Error).message.slice(0, 200));
-      return events.filter((e) => matchesKeywords(query, haystack(e)));
+      // The phrase itself (tolerating "stand-up" ~ "stand up"), or every word of it somewhere in the listing.
+      const phrase = termPattern([query]);
+      return events.filter((e) => phrase.test(haystack(e)) || matchesKeywords(query, haystack(e)));
     }
   }
   const pattern = termPattern(terms);

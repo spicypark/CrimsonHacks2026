@@ -9,8 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { type Filters, filtersToParams, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayLabel } from "@/lib/events/format";
 import { clusterByVenue, groupByDay } from "@/lib/events/grouping";
-import { queryEvents } from "@/lib/events/query";
-import { topicFilter } from "@/lib/search/topic";
+import { searchEvents } from "@/lib/search/relax";
 
 export default function Home(props: PageProps<"/">) {
   return (
@@ -35,26 +34,37 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
   const filters = parseFilters(await searchParams);
   await connection(); // live data: always render at request time, never at build
   // Search words are matched by meaning (Claude Haiku), not exact text; everything else filters in SQL.
-  const candidates = queryEvents({ ...filters, q: undefined });
-  const events = filters.q ? await topicFilter(filters.q, candidates) : candidates;
+  // An AI search that comes back empty is retried a little looser, with a notice saying how.
+  const { events, relaxed } = await searchEvents(filters);
   const now = requestTime();
 
   if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
 
+  const notice = relaxed && (
+    <p role="status" className="mb-8 rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+      <span className="font-semibold text-foreground">No exact matches for &ldquo;{filters.ask}&rdquo;.</span> Showing results{" "}
+      {relaxed} instead.
+    </p>
+  );
+
   if (filters.sort !== "soon") {
     return (
-      <ol className={EVENT_GRID}>
-        {events.map((e) => (
-          <li key={e.id}>
-            <EventCard event={e} now={now} />
-          </li>
-        ))}
-      </ol>
+      <>
+        {notice}
+        <ol className={EVENT_GRID}>
+          {events.map((e) => (
+            <li key={e.id}>
+              <EventCard event={e} now={now} />
+            </li>
+          ))}
+        </ol>
+      </>
     );
   }
 
   return (
     <div className="space-y-12">
+      {notice}
       {groupByDay(events, now).map(([key, group]) => (
         <section key={key} aria-labelledby={`day-${key}`}>
           <details open className="group/day">

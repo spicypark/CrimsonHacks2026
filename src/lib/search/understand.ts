@@ -15,13 +15,19 @@ const known = <T extends string>(all: readonly T[]) =>
     .catch([])
     .transform((xs) => [...new Set(xs.filter((x): x is T => (all as readonly string[]).includes(x)))]);
 
+/** true / "true" only. z.coerce.boolean() would turn "false", 0-as-string and "no" into true. */
+const flag = z
+  .union([z.boolean(), z.string().transform((s) => s.trim().toLowerCase() === "true"), z.number().transform((n) => n === 1)])
+  .optional()
+  .catch(undefined);
+
 const Reply = z.object({
   c: known(CATEGORIES).optional(),
   v: known(VIBE_TAGS.filter((v) => v !== "free")).optional(),
-  f: z.coerce.boolean().optional().catch(undefined),
+  f: flag,
   w: z.enum(WHEN).optional().catch(undefined),
   p: z.string().max(80).optional().catch(undefined),
-  n: z.coerce.boolean().optional().catch(undefined),
+  n: flag, // no longer asked for (see NEAR_ME), still tolerated
   k: z.string().max(120).optional().catch(undefined),
 });
 type Reply = z.infer<typeof Reply>;
@@ -29,12 +35,13 @@ type Reply = z.infer<typeof Reply>;
 // Kept short on purpose: every token here is paid on every new search. Times are relative ("tonight"),
 // so the current date isn't needed — the server resolves them.
 const SYSTEM = `Turn an event search (Salt Lake City area) into JSON. Omit any key the search doesn't clearly ask for.
-{"c":[category],"v":[vibe],"f":true if free,"w":time,"p":"place","n":true if near me/nearby,"k":"topic words"}
-c: ${CATEGORIES.join(" ")} (only if k is empty)
-v: ${VIBE_TAGS.filter((v) => v !== "free").join(" ")}
+{"k":"topic words","c":[category],"v":[vibe],"f":true if free,"w":time,"p":"place"}
+k: any specific activity or topic, e.g. "jazz", "hiking", "yoga", "trivia", "comedy", "board games". Never generic words like fun, stuff, events, things, ideas.
+c: only for a broad kind with no specific topic ("live music"→music, "sports", "food"→food-drink). One of: ${CATEGORIES.join(" ")}
+v: only for words about feel or audience ("chill", "kids", "21+", "solo"). One of: ${VIBE_TAGS.filter((v) => v !== "free").join(" ")}
 w: ${WHEN.join(" ")}
 p: a named neighborhood, city, venue or landmark
-k: specific topics not covered above, e.g. "jazz", "board games". Never generic words like fun, stuff, events, things.
+Examples: "events near me"→{} "date night ideas"→{} "free jazz in provo saturday"→{"k":"jazz","f":true,"w":"weekend","p":"Provo"}
 JSON only.`;
 
 /** Small in-memory cache: the same search typed twice costs nothing. */
@@ -75,7 +82,8 @@ export async function understand(text: string): Promise<SearchPlan> {
     vibe: u.v ?? [],
     free: u.f ? "1" : undefined,
   };
-  if (u.w) filters.when = u.w;
+  // Same for time: a window nobody asked for ("date night ideas" → weekend) silently hides most events.
+  if (u.w && TIME_WORDS.test(text)) filters.when = u.w;
 
   if (u.p) {
     const point = await geocode(u.p);
@@ -83,5 +91,13 @@ export async function understand(text: string): Promise<SearchPlan> {
     // Unknown place: keep it as a search word rather than dropping it.
     else filters.q = [filters.q, u.p.toLowerCase()].filter(Boolean).join(" ");
   }
-  return { filters, nearMe: !!u.n && !filters.near };
+  // The model sometimes sets n for searches that never mention distance ("basketball game"), which would
+  // pop a location prompt and re-sort the list. Only trust it when the words are actually there.
+  const saysNear = NEAR_ME.test(text);
+  return { filters, nearMe: saysNear && !filters.near };
 }
+
+const NEAR_ME = /\b(?:near|close to|around|by)\s+(?:me|here|us|my (?:place|house|location))\b|\bnearby\b|\bclose by\b|\bwalking distance\b|\bin my area\b|\bwhere i am\b/i;
+
+const TIME_WORDS =
+  /\b(?:now|today|tonight|this (?:evening|afternoon|morning)|tomorrow|weekend|week|month|(?:mon|tues|wednes|thurs|fri|satur|sun)day|sat|sun|fri|later|soon|upcoming|this \w+)\b/i;
