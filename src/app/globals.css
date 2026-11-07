@@ -7,9 +7,17 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-body);
-  --font-heading: var(--font-display);
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  --font-heading: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --color-paprika: var(--paprika);
+  --color-dust: var(--dust);
+  --color-charcoal: var(--charcoal);
+  --color-carbon: var(--carbon);
+  --color-floral: var(--floral);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-ink-soft: var(--ink-soft);
   --color-alpenglow: var(--alpenglow);
   --color-sage: var(--sage);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -51,41 +59,85 @@
 }
 
 :root {
-  /* Wasatch dusk: indigo night sky over the valley, lit by sandstone + alpenglow. Dark-only app. */
-  --background: #15132a;
-  --foreground: #ede6da;
-  --card: #1c1936;
-  --card-foreground: #ede6da;
-  --popover: #221e40;
-  --popover-foreground: #ede6da;
-  --primary: #f2b35b; /* sandstone */
-  --primary-foreground: #1a1426;
-  --secondary: #262249;
-  --secondary-foreground: #ede6da;
-  --muted: #221f3f;
-  --muted-foreground: #a9a4c4;
-  --accent: #2b2752;
-  --accent-foreground: #ede6da;
-  --destructive: #ff6b6b;
-  --border: #2e2a55;
-  --input: #3a3566;
-  --ring: #f2b35b;
-  --alpenglow: #ff7a5c; /* live / happening now / buzz */
-  --sage: #9ccfa8; /* good weather, free-ish positives */
-  --chart-1: #f2b35b;
-  --chart-2: #ff7a5c;
-  --chart-3: #9ccfa8;
-  --chart-4: #8f86d6;
-  --chart-5: #5b5390;
-  --radius: 0.75rem;
-  --sidebar: #1c1936;
-  --sidebar-foreground: #ede6da;
-  --sidebar-primary: #f2b35b;
-  --sidebar-primary-foreground: #1a1426;
-  --sidebar-accent: #2b2752;
-  --sidebar-accent-foreground: #ede6da;
-  --sidebar-border: #2e2a55;
-  --sidebar-ring: #f2b35b;
+  /* Coolors palette: Floral White, Dust Grey, Charcoal Brown, Carbon Black, Spicy Paprika. */
+  --floral: #fffcf2;
+  --dust: #ccc5b9;
+  --charcoal: #403d39;
+  --carbon: #252422;
+  --paprika: #eb5e55;
+
+  /* Theme-aware: strongest text/fill, page colour, and the softer in-between. */
+  --ink: var(--carbon);
+  --paper: var(--floral);
+  --ink-soft: var(--charcoal);
+
+  --background: var(--floral);
+  --foreground: var(--carbon);
+  --card: var(--floral);
+  --card-foreground: var(--carbon);
+  --popover: var(--floral);
+  --popover-foreground: var(--carbon);
+  --primary: var(--carbon);
+  --primary-foreground: var(--floral);
+  --secondary: color-mix(in oklab, var(--dust) 45%, var(--floral));
+  --secondary-foreground: var(--carbon);
+  --muted: color-mix(in oklab, var(--dust) 35%, var(--floral));
+  --muted-foreground: var(--charcoal);
+  --accent: color-mix(in oklab, var(--dust) 30%, var(--floral));
+  --accent-foreground: var(--carbon);
+  --destructive: #b8431a;
+  --border: var(--dust);
+  --input: var(--dust);
+  --ring: var(--paprika);
+  --alpenglow: var(--paprika);
+  --sage: var(--charcoal);
+  --chart-1: var(--paprika);
+  --chart-2: var(--charcoal);
+  --chart-3: var(--dust);
+  --chart-4: var(--carbon);
+  --chart-5: #f39b97;
+  --radius: 0.5rem;
+  --sidebar: var(--floral);
+  --sidebar-foreground: var(--carbon);
+  --sidebar-primary: var(--carbon);
+  --sidebar-primary-foreground: var(--floral);
+  --sidebar-accent: var(--muted);
+  --sidebar-accent-foreground: var(--carbon);
+  --sidebar-border: var(--dust);
+  --sidebar-ring: var(--paprika);
+  color-scheme: light;
+}
+
+.dark {
+  --ink: var(--floral);
+  --paper: var(--carbon);
+  --ink-soft: var(--dust);
+
+  --background: var(--carbon);
+  --foreground: var(--floral);
+  --card: color-mix(in oklab, var(--charcoal) 40%, var(--carbon));
+  --card-foreground: var(--floral);
+  --popover: color-mix(in oklab, var(--charcoal) 55%, var(--carbon));
+  --popover-foreground: var(--floral);
+  --primary: var(--floral);
+  --primary-foreground: var(--carbon);
+  --secondary: var(--charcoal);
+  --secondary-foreground: var(--floral);
+  --muted: color-mix(in oklab, var(--charcoal) 70%, var(--carbon));
+  --muted-foreground: var(--dust);
+  --accent: var(--charcoal);
+  --accent-foreground: var(--floral);
+  --destructive: #f4845a;
+  --border: var(--charcoal);
+  --input: var(--charcoal);
+  --sage: var(--dust);
+  --sidebar: var(--carbon);
+  --sidebar-foreground: var(--floral);
+  --sidebar-primary: var(--floral);
+  --sidebar-primary-foreground: var(--carbon);
+  --sidebar-accent: var(--charcoal);
+  --sidebar-accent-foreground: var(--floral);
+  --sidebar-border: var(--charcoal);
   color-scheme: dark;
 }
 
@@ -112,7 +164,7 @@
   }
 }
 
-/* The one ambient motion: events happening right now breathe. */
+/* Events happening right now pulse. */
 @keyframes live-pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--alpenglow) 70%, transparent); }
   70% { box-shadow: 0 0 0 8px transparent; }
@@ -123,4 +175,14 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .live-dot { animation: none; }
+}
+
+/* Map pin on the event page. */
+.event-pin {
+  width: 30px;
+  height: 40px;
+  filter: drop-shadow(0 2px 3px rgb(37 36 34 / 0.35));
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
 }

@@ -26,6 +26,9 @@ export function formatTimeRange(startIso: string, endIso: string, endEstimated: 
   return `${start}–${endEstimated ? "~" : ""}${end}`;
 }
 
+/** "Fri, Nov 7" */
+export const shortDate = (iso: string) => format(local(iso), "EEE, MMM d");
+
 /** Calendar-day key in Utah time, for grouping. */
 export const dayKey = (iso: string) => format(local(iso), "yyyy-MM-dd");
 

@@ -8,31 +8,19 @@ import { type Filters, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayKey, dayLabel } from "@/lib/events/format";
 import { type EventView, queryEvents } from "@/lib/events/query";
 
-const SORT_HEADINGS: Record<Exclude<Filters["sort"], "soon">, string> = {
-  popular: "Most popular",
-  near: "Closest to you",
-  new: "Newly added",
-};
+const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
 
 export default function Home(props: PageProps<"/">) {
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-24">
-      <header className="pt-8 pb-6 sm:pt-12">
-        <Link href="/" className="inline-block font-heading text-4xl font-extrabold tracking-tight sm:text-5xl">
-          PullUp
-        </Link>
-        <p className="mt-2 max-w-md text-muted-foreground">
-          Public events from Ogden to Provo that anyone can walk into. Pick one and show up.
-        </p>
-      </header>
-
-      <div className="z-20 -mx-4 bg-background/90 px-4 py-3 backdrop-blur sm:sticky sm:top-0">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
+      <h1 className="sr-only">Events</h1>
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background px-4 py-3 sm:-mx-6 sm:px-6">
         <Suspense fallback={<FilterBarSkeleton />}>
           <FilterBar />
         </Suspense>
       </div>
 
-      <main id="main" className="mt-4">
+      <main id="main" className="mt-8">
         <Suspense fallback={<ListSkeleton />}>
           <EventList searchParams={props.searchParams} />
         </Suspense>
@@ -47,58 +35,38 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
   const events = queryEvents(filters);
   const now = requestTime();
 
-  if (!events.length) return <EmptyState filtered={hasFilters(filters)} maybe={!!filters.maybe} />;
-
-  const summary = (
-    <p className="mb-6 text-sm text-muted-foreground" aria-live="polite">
-      {events.length} {filters.maybe ? "unverified " : ""}
-      {events.length === 1 ? "event" : "events"}
-      {filters.q ? ` matching “${filters.q}”` : ""}
-    </p>
-  );
+  if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
 
   if (filters.sort !== "soon") {
     return (
-      <section aria-labelledby="flat-heading">
-        <h2 id="flat-heading" className="mb-1 text-2xl font-bold tracking-tight">
-          {SORT_HEADINGS[filters.sort]}
-        </h2>
-        {summary}
-        <ol className="space-y-3">
-          {events.map((e) => (
-            <li key={e.id}>
-              <EventCard event={e} now={now} />
-            </li>
-          ))}
-        </ol>
-      </section>
+      <ol className={GRID}>
+        {events.map((e) => (
+          <li key={e.id}>
+            <EventCard event={e} now={now} />
+          </li>
+        ))}
+      </ol>
     );
   }
 
   return (
-    <>
-      {summary}
-      <div className="space-y-10">
-        {groupByDay(events, now).map(([key, group]) => (
-          <section key={key} aria-labelledby={`day-${key}`}>
-            <h2 id={`day-${key}`} className="mb-4 flex items-baseline gap-3 border-b border-border pb-2">
-              <span className="text-2xl font-bold tracking-tight sm:text-3xl">{dayLabel(key, new Date(now))}</span>
-              <span className="text-sm font-medium text-muted-foreground">{dayDate(key)}</span>
-              <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-                {group.length} {group.length === 1 ? "event" : "events"}
-              </span>
-            </h2>
-            <ol className="space-y-3">
-              {group.map((e) => (
-                <li key={e.id}>
-                  <EventCard event={e} now={now} />
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
-      </div>
-    </>
+    <div className="space-y-12">
+      {groupByDay(events, now).map(([key, group]) => (
+        <section key={key} aria-labelledby={`day-${key}`}>
+          <h2 id={`day-${key}`} className="mb-5 flex items-baseline gap-3 border-b-2 border-ink pb-2">
+            <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
+            <span className="text-base text-muted-foreground">{dayDate(key)}</span>
+          </h2>
+          <ol className={GRID}>
+            {group.map((e) => (
+              <li key={e.id}>
+                <EventCard event={e} now={now} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -118,21 +86,14 @@ function groupByDay(events: EventView[], now: number): [string, EventView[]][] {
 
 const hasFilters = (f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
 
-function EmptyState({ filtered, maybe }: { filtered: boolean; maybe: boolean }) {
+function EmptyState({ filtered }: { filtered: boolean }) {
   return (
-    <div className="rounded-xl border border-dashed border-border px-6 py-14 text-center">
-      <h2 className="text-xl font-semibold">
-        {maybe ? "No unverified events right now" : filtered ? "Nothing matches these filters" : "No events found yet"}
-      </h2>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-        {filtered || maybe
-          ? "Try a wider date range, or remove a filter or two."
-          : "The finder hasn’t collected any events yet. Check back after the next update."}
-      </p>
-      {(filtered || maybe) && (
+    <div className="py-20 text-center">
+      <p className="text-lg font-bold">{filtered ? "Nothing matches." : "No events yet."}</p>
+      {filtered && (
         <Link
           href="/"
-          className="mt-6 inline-flex h-10 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          className="mt-5 inline-flex h-11 items-center rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors duration-200 hover:bg-ink-soft"
         >
           Clear filters
         </Link>
@@ -143,11 +104,11 @@ function EmptyState({ filtered, maybe }: { filtered: boolean; maybe: boolean }) 
 
 function FilterBarSkeleton() {
   return (
-    <div className="space-y-3" aria-hidden>
-      <Skeleton className="h-11 w-full rounded-xl" />
+    <div className="flex flex-col gap-3 lg:flex-row" aria-hidden>
+      <Skeleton className="h-11 w-full rounded-md lg:max-w-sm" />
       <div className="flex gap-2">
         {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-9 w-24 rounded-full" />
+          <Skeleton key={i} className="h-11 w-24 rounded-md" />
         ))}
       </div>
     </div>
@@ -156,14 +117,13 @@ function FilterBarSkeleton() {
 
 function ListSkeleton() {
   return (
-    <div className="space-y-3" aria-label="Loading events">
-      <Skeleton className="mb-6 h-4 w-24" />
-      {Array.from({ length: 5 }, (_, i) => (
-        <div key={i} className="grid grid-cols-[3.75rem_1fr] gap-3 sm:grid-cols-[5.5rem_1fr] sm:gap-5">
-          <Skeleton className="mt-3 ml-auto h-6 w-12" />
-          <Skeleton className="h-32 rounded-xl" />
-        </div>
-      ))}
+    <div aria-label="Loading events">
+      <Skeleton className="mb-5 h-10 w-48" />
+      <div className={GRID}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <Skeleton key={i} className="aspect-[4/5] rounded-lg" />
+        ))}
+      </div>
     </div>
   );
 }
