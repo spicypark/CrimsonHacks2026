@@ -9,7 +9,7 @@ import { filtersToParams, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayLabel } from "@/lib/events/format";
 import { clusterOf, listDay, venueKey } from "@/lib/events/grouping";
 import { queryEvents } from "@/lib/events/query";
-import { semanticFilter } from "@/lib/search/semantic";
+import { topicFilter } from "@/lib/search/topic";
 
 /**
  * Every event at one venue on one list day — where a condensed venue tile leads.
@@ -41,7 +41,7 @@ async function VenueDay({
 
   // Same search path as the list (meaning-based match over the whole result set), so counts agree.
   const candidates = queryEvents({ ...filters, q: undefined });
-  const matched = filters.q ? await semanticFilter(filters.q, candidates) : candidates;
+  const matched = filters.q ? await topicFilter(filters.q, candidates) : candidates;
   const events = matched.filter(
     (e) => clusterOf(e)?.key === key && (!day || listDay(e, now) === day),
   );
