@@ -59,6 +59,7 @@ async function ask(text: string, now: Date): Promise<Understood> {
   const local = new TZDate(now, TIME_ZONE);
   const result = await generateJson({
     task: "search",
+    interactive: true,
     system: SYSTEM,
     prompt: `It is ${format(local, "EEEE, MMMM d, yyyy, h:mm a")} in Utah.\nSearch: ${JSON.stringify(text)}`,
     schema: Understood,
@@ -82,10 +83,13 @@ export interface SearchPlan {
  */
 export async function understand(text: string, now = new Date()): Promise<SearchPlan> {
   const u = await ask(text, now);
+  const keywords = u.keywords.trim();
   const filters: Partial<Filters> = {
     ask: text,
-    q: u.keywords.trim() || undefined,
-    cat: [...new Set(u.categories)],
+    q: keywords || undefined,
+    // Topic words already match by meaning, and a guessed category can contradict how the event was filed
+    // ("comedy" → Arts & Culture, while the comedy show is Nightlife). Categories only narrow broad searches.
+    cat: keywords ? [] : [...new Set(u.categories)],
     vibe: [...new Set(u.vibeTags.filter((v) => v !== "free"))],
     free: u.freeOnly ? "1" : undefined,
   };

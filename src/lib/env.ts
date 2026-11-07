@@ -18,6 +18,11 @@ export const env = {
     return (optional("GEMINI_MODEL") ?? "gemini-3.5-flash,gemini-3.6-flash,gemini-3.5-flash-lite")
       .split(",").map((m) => m.trim()).filter(Boolean);
   },
+  /** Models for interactive calls (search): fastest first. Comma-separated, tried in order. */
+  get geminiFastModels() {
+    return (optional("GEMINI_FAST_MODEL") ?? "gemini-3.5-flash-lite,gemini-3.5-flash")
+      .split(",").map((m) => m.trim()).filter(Boolean);
+  },
   get geminiEmbedModel() { return optional("GEMINI_EMBED_MODEL") ?? "gemini-embedding-001"; },
   get groqKey() { return optional("GROQ_API_KEY"); },
   get groqModel() { return optional("GROQ_MODEL") ?? "llama-3.3-70b-versatile"; },

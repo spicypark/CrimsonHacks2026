@@ -12,11 +12,15 @@ import { CATEGORY_LABELS } from "@/shared/event";
  *  1. Retrieve: embedding cosine (+ a small exact-word bonus) shortlists the SHORTLIST closest events.
  *  2. Rerank: Gemini reads the shortlist and picks the events a person searching this would actually want.
  *     Embedding scores alone are too close together (match vs. non-match differ by ~0.02–0.05) for a fixed cutoff.
+ *     Skipped when the embeddings already agree clearly (one event far ahead of the rest), which saves an AI call.
  * Fallbacks: AI rerank fails → keep events within FALLBACK_WINDOW of the best score; embeddings unavailable → keywords.
  */
 const SHORTLIST = 20;
 const KEYWORD_BONUS = 0.08;
 const FALLBACK_WINDOW = 0.04;
+/** A best score this high, leading the runner-up by CLEAR_GAP, is unambiguous ("board games" → Board Game Night). */
+const CLEAR_SCORE = 0.62;
+const CLEAR_GAP = 0.1;
 
 const queryVectors = new Map<string, Float32Array>();
 const rerankCache = new Map<string, Set<string>>();
@@ -37,6 +41,11 @@ export async function semanticFilter(q: string, events: EventView[]): Promise<Ev
   if (!scored.length) return [];
 
   const shortlist = [...scored].sort((a, b) => b.score - a.score).slice(0, SHORTLIST);
+  const [best, second] = shortlist;
+  if (best.score >= CLEAR_SCORE && best.score - (second?.score ?? 0) >= CLEAR_GAP) {
+    return events.filter((e) => e.id === best.event.id);
+  }
+
   let keep: Set<string>;
   try {
     keep = await rerank(query, shortlist.map((s) => s.event));
@@ -53,7 +62,7 @@ export async function score(query: string, events: EventView[]): Promise<Scored[
   if (!events.length) return [];
   let qv = queryVectors.get(query);
   if (!qv) {
-    const [v] = await embedOrNull([query]);
+    const [v] = await embedOrNull([query], { interactive: true });
     if (!v) return null;
     qv = v;
     remember(queryVectors, query, v);
@@ -82,6 +91,7 @@ async function rerank(query: string, shortlist: EventView[]): Promise<Set<string
     .join("\n");
   const { matches } = await generateJson({
     task: "rerank",
+    interactive: true,
     system:
       "You filter a list of local events for a search. Return the numbers of the events someone typing this search " +
       "would want to see. Be strict: include an event only if it is clearly about the search topic, or is a close " +
@@ -109,7 +119,7 @@ async function eventVectors(events: EventView[]): Promise<Map<string, Float32Arr
 
   const missing = events.filter((x) => !out.has(x.id));
   if (missing.length) {
-    const fresh = await embedOrNull(missing.map(eventText));
+    const fresh = await embedOrNull(missing.map(eventText), { interactive: true });
     db.transaction((tx) => {
       missing.forEach((m, i) => {
         const v = fresh[i];
