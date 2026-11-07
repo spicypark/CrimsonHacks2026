@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, MapPin } from "lucide-react";
+import { ArrowRight, CalendarDays, LibraryBig, MapPin } from "lucide-react";
 import Link from "next/link";
 import { formatTime, formatTimeRange, shortDate } from "@/lib/events/format";
 import type { EventView } from "@/lib/events/query";
@@ -7,10 +7,23 @@ import { EventThumb } from "./event-thumb";
 const PREVIEW = 3;
 
 /**
- * Several events at one venue on one day, condensed into a single tile that links to the venue page.
+ * Several events at one venue (or across one library system's branches) on one day, condensed into a
+ * single tile that links to the venue page.
  * Drawn as a stack of cards so it reads as "many" at a glance; same footprint as an EventCard.
  */
-export function VenueCard({ venue, events, href }: { venue: string; events: EventView[]; href: string }) {
+export function VenueCard({
+  venue,
+  system,
+  events,
+  href,
+}: {
+  venue: string;
+  system: boolean;
+  events: EventView[];
+  href: string;
+}) {
+  const Icon = system ? LibraryBig : MapPin;
+  const branches = new Set(events.map((e) => e.venueName?.trim()).filter(Boolean)).size;
   const first = events[0];
   const cover = events.find((e) => e.imageUrl) ?? first;
   const lastEnd = events.reduce((max, e) => (e.endsAt > max ? e.endsAt : max), first.endsAt);
@@ -37,17 +50,25 @@ export function VenueCard({ venue, events, href }: { venue: string; events: Even
             href={href}
             className="outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring"
           >
-            <MapPin className="mr-1.5 -mt-0.5 inline size-4 text-paprika" aria-hidden />
+            <Icon className="mr-1.5 -mt-0.5 inline size-4 text-paprika" aria-hidden />
             {venue}
           </Link>
         </h3>
 
-        <p className="flex items-center gap-2 text-sm font-medium">
-          <CalendarDays className="size-4 shrink-0 text-paprika" aria-hidden />
-          <span className="tabular-nums">
-            {shortDate(first.startsAt)} · {formatTimeRange(first.startsAt, lastEnd, false)}
-          </span>
-        </p>
+        <div className="space-y-1.5 text-sm">
+          <p className="flex items-center gap-2 font-medium">
+            <CalendarDays className="size-4 shrink-0 text-paprika" aria-hidden />
+            <span className="tabular-nums">
+              {shortDate(first.startsAt)} · {formatTimeRange(first.startsAt, lastEnd, false)}
+            </span>
+          </p>
+          {system && branches > 1 && (
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <MapPin className="size-4 shrink-0 text-paprika" aria-hidden />
+              Across {branches} branches
+            </p>
+          )}
+        </div>
 
         <ul className="space-y-1 text-sm" aria-label={`Events at ${venue}`}>
           {events.slice(0, PREVIEW).map((e) => (

@@ -7,7 +7,7 @@ import { EVENT_GRID, EventCard } from "@/components/events/event-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filtersToParams, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayLabel } from "@/lib/events/format";
-import { listDay, venueKey } from "@/lib/events/grouping";
+import { clusterOf, listDay, venueKey } from "@/lib/events/grouping";
 import { queryEvents } from "@/lib/events/query";
 
 /**
@@ -39,12 +39,16 @@ async function VenueDay({
   const now = requestTime();
 
   const events = queryEvents(filters).filter(
-    (e) => e.venueName && venueKey(e.venueName) === key && (!day || listDay(e, now) === day),
+    (e) => clusterOf(e)?.key === key && (!day || listDay(e, now) === day),
   );
   if (!events.length) notFound();
 
-  const name = events[0].venueName!.trim();
-  const address = events.find((e) => e.address)?.address;
+  const cluster = clusterOf(events[0])!;
+  const name = cluster.name;
+  const branches = new Set(events.map((e) => e.venueName?.trim()).filter(Boolean)).size;
+  const address = cluster.system
+    ? `${branches} ${branches === 1 ? "branch" : "branches"}`
+    : events.find((e) => e.address)?.address;
   const back = filtersToParams(filters).toString();
 
   return (

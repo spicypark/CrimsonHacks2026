@@ -76,7 +76,7 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
                   </li>
                 ) : (
                   <li key={`venue-${item.venue}`}>
-                    <VenueCard venue={item.venue} events={item.events} href={venueHref(item.venue, key, filters)} />
+                    <VenueCard venue={item.venue} system={item.system} events={item.events} href={venueHref(item.venue, key, filters)} />
                   </li>
                 ),
               )}
