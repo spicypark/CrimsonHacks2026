@@ -2,7 +2,6 @@ import { ArrowRight, CalendarDays, LibraryBig, MapPin } from "lucide-react";
 import Link from "next/link";
 import { formatTime, formatTimeRange, shortDate } from "@/lib/events/format";
 import type { EventView } from "@/lib/events/query";
-import { EventThumb } from "./event-thumb";
 
 const PREVIEW = 3;
 
@@ -25,7 +24,6 @@ export function VenueCard({
   const Icon = system ? LibraryBig : MapPin;
   const branches = new Set(events.map((e) => e.venueName?.trim()).filter(Boolean)).size;
   const first = events[0];
-  const cover = events.find((e) => e.imageUrl) ?? first;
   const lastEnd = events.reduce((max, e) => (e.endsAt > max ? e.endsAt : max), first.endsAt);
   const free = events.filter((e) => e.isFree).length;
   const rest = events.length - PREVIEW;
@@ -33,10 +31,11 @@ export function VenueCard({
   return (
     <article className="group relative mr-2 mb-2 flex h-[calc(100%-0.5rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[4px_4px_0_-1px_var(--card),4px_4px_0_0_var(--border),8px_8px_0_-1px_var(--card),8px_8px_0_0_var(--border)] transition-colors duration-200 hover:border-ink-soft focus-within:border-ink-soft">
       <div className="relative">
-        <EventThumb src={cover.imageUrl} category={cover.category} className="aspect-[3/2] w-full" />
-        <span className="absolute top-3 right-3 rounded bg-carbon px-2 py-1 text-xs font-bold text-floral tabular-nums">
-          {events.length} events
-        </span>
+        {/* The count is the picture: a condensed tile is about how many, not any one event's image. */}
+        <div className="grid aspect-[3/2] w-full place-content-center bg-dust text-center text-carbon" aria-hidden>
+          <span className="text-7xl leading-none font-bold tracking-tight tabular-nums sm:text-8xl">{events.length}</span>
+          <span className="mt-1 text-lg font-semibold tracking-wide uppercase">events</span>
+        </div>
         {free > 0 && (
           <span className="absolute top-3 left-3 rounded bg-carbon px-2 py-1 text-xs font-bold tracking-wide text-paprika uppercase">
             {free === events.length ? "All free" : `${free} free`}
