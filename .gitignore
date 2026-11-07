@@ -46,3 +46,6 @@ next-env.d.ts
 
 # copied from node_modules on install
 /public/maplibre-gl-worker.mjs
+
+# desk display secrets (Wi-Fi password)
+/device/**/config.h

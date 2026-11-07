@@ -44,9 +44,12 @@ export interface EventView {
  * The one place event filtering and sorting lives — used by the list, the map, NL search and the API.
  * `ids` optionally restricts (and orders, for search relevance) the result.
  */
-export function queryEvents(f: Filters, opts: { ids?: string[]; now?: Date } = {}): EventView[] {
+export function queryEvents(
+  f: Filters,
+  opts: { ids?: string[]; now?: Date; /** Exact [from, to) window; overrides `f.when`. */ window?: { from: Date; to: Date } } = {},
+): EventView[] {
   const db = getDb();
-  const { from, to } = timeWindow(f.when, opts.now);
+  const { from, to } = opts.window ?? timeWindow(f.when, opts.now);
   const e = schema.events;
 
   const conditions = [

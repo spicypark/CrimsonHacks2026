@@ -26,6 +26,8 @@ export interface JsonRequest<T> {
    * pipeline pacing gate, and fails fast instead of retrying for minutes; callers have a fallback.
    */
   interactive?: boolean;
+  /** Per-call timeout override (ms), for an interactive call that reasons over a long list. */
+  timeoutMs?: number;
 }
 
 interface Provider {
@@ -55,7 +57,7 @@ const geminiProvider = (model: string): Provider => ({
           temperature: 0.2,
           // Extraction is pattern-matching, not reasoning: low thinking keeps calls fast and cheap.
           thinkingConfig: { thinkingLevel: req.interactive ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW },
-          abortSignal: AbortSignal.timeout(req.interactive ? INTERACTIVE_TIMEOUT_MS : CALL_TIMEOUT_MS),
+          abortSignal: AbortSignal.timeout(req.timeoutMs ?? (req.interactive ? INTERACTIVE_TIMEOUT_MS : CALL_TIMEOUT_MS)),
         },
       });
     try {
