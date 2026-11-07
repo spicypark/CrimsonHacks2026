@@ -188,7 +188,8 @@
 }
 
 /* Live map pins, colour-coded by popularity tier. The outer button is positioned by MapLibre,
-   so the pop-in/out animation runs on the inner dot. */
+   so the pop-in/out animation runs on the inner dot. The map is full colour in both themes,
+   so the pins deliberately have no dark-mode variant either. */
 .live-pin,
 .live-pin-swatch {
   --pin: var(--dust);
@@ -199,11 +200,6 @@
 [data-tier="popular"] { --pin: #f39b97; --pin-size: 17px; }
 [data-tier="quiet"] { --pin: var(--dust); --pin-size: 14px; }
 [data-tier="unrated"] { --pin: var(--floral); --pin-size: 11px; }
-.dark [data-tier="unrated"] { --pin: var(--charcoal); }
-.dark .live-pin,
-.dark .live-pin-swatch { --pin-ring: var(--floral); }
-.dark [data-tier="unrated"].live-pin,
-.dark [data-tier="unrated"].live-pin-swatch { --pin-ring: var(--dust); }
 
 .live-pin {
   display: grid;

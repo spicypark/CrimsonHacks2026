@@ -13,6 +13,8 @@ const VALLEY_CENTER: [number, number] = [-111.88, 40.70];
 const BOUNDS: [[number, number], [number, number]] = [[-113.2, 39.7], [-110.6, 41.7]];
 const TIER_Z = { hot: 4, popular: 3, quiet: 2, unrated: 1 } as const;
 const EXIT_MS = 180;
+/** Full-colour street map (parks, water, roads). Deliberately the same in light and dark mode. */
+const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 type MapLib = typeof import("maplibre-gl");
 interface Pin {
@@ -38,18 +40,14 @@ export function MapCanvas({ events, visibleIds }: { events: PlacedEvent[]; visib
   useEffect(() => {
     let cancelled = false;
     let map: MapLibre | undefined;
-    let observer: MutationObserver | undefined;
-    const root = document.documentElement;
-    const styleUrl = () => `https://tiles.openfreemap.org/styles/${root.classList.contains("dark") ? "dark" : "positron"}`;
     const current = pins.current;
     const exits = leaving.current;
     import("maplibre-gl").then((lib) => {
       if (cancelled || !ref.current) return;
       lib.setWorkerUrl("/maplibre-gl-worker.mjs"); // see postinstall: the bundler can't follow MapLibre's worker import
-      let style = styleUrl();
       map = new lib.Map({
         container: ref.current,
-        style,
+        style: STYLE_URL,
         center: VALLEY_CENTER,
         zoom: 10.3,
         minZoom: 8,
@@ -58,16 +56,10 @@ export function MapCanvas({ events, visibleIds }: { events: PlacedEvent[]; visib
       });
       map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
       const popup = new lib.Popup({ offset: 14, closeButton: true, maxWidth: "280px", className: "live-popup" });
-      observer = new MutationObserver(() => {
-        const next = styleUrl();
-        if (next !== style) map?.setStyle((style = next));
-      });
-      observer.observe(root, { attributes: true, attributeFilter: ["class"] });
       setCtx({ lib, map, popup });
     });
     return () => {
       cancelled = true;
-      observer?.disconnect();
       for (const timer of exits.values()) clearTimeout(timer);
       exits.clear();
       current.clear();
