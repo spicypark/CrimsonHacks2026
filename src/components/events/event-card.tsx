@@ -15,6 +15,9 @@ import {
 import { CATEGORY_LABELS } from "@/shared/event";
 import { EventThumb } from "./event-thumb";
 
+/** The responsive grid every list of event tiles uses. */
+export const EVENT_GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
+
 /** One event as a tile: picture with price, then title, when, where and tags. The whole tile is one link. */
 export function EventCard({ event: e, now }: { event: EventView; now: number }) {
   const live = isLive(e.startsAt, e.endsAt, now);
