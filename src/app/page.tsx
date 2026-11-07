@@ -35,7 +35,7 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
   await connection(); // live data: always render at request time, never at build
   // Search words are matched by meaning (Claude Haiku), not exact text; everything else filters in SQL.
   // An AI search that comes back empty is retried a little looser, with a notice saying how.
-  const { events, relaxed } = await searchEvents(filters);
+  const { events, relaxed, when } = await searchEvents(filters);
   const now = requestTime();
 
   if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
@@ -46,11 +46,14 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
       {relaxed} instead.
     </p>
   );
+  // A loosened search may have widened the dates; count against the window actually shown.
+  const found = <FoundCount count={events.length} when={when} />;
 
   if (filters.sort !== "soon") {
     return (
       <>
         {notice}
+        {found}
         <ol className={EVENT_GRID}>
           {events.map((e) => (
             <li key={e.id}>
@@ -63,41 +66,65 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
   }
 
   return (
-    <div className="space-y-12">
+    <>
       {notice}
-      {groupByDay(events, now).map(([key, group]) => (
-        <section key={key} aria-labelledby={`day-${key}`}>
-          <details open className="group/day">
-            <summary className="mb-5 flex cursor-pointer list-none items-center gap-3 border-b-2 border-ink pb-2 group-[:not([open])]/day:mb-0 [&::-webkit-details-marker]:hidden">
-              <h2 id={`day-${key}`} className="flex items-baseline gap-3">
-                <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
-                <span className="text-base text-muted-foreground">{dayDate(key)}</span>
-                <span className="inline-flex h-7 items-center self-center rounded-md bg-secondary px-2.5 text-sm font-semibold tabular-nums text-ink">
-                  {group.length} {group.length === 1 ? "event" : "events"}
-                </span>
-              </h2>
-              <ChevronDown
-                aria-hidden
-                className="ml-auto size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
-              />
-            </summary>
-            <ol className={EVENT_GRID}>
-              {clusterByVenue(group).map((item) =>
-                item.kind === "event" ? (
-                  <li key={item.event.id}>
-                    <EventCard event={item.event} now={now} />
-                  </li>
-                ) : (
-                  <li key={`venue-${item.venue}`}>
-                    <VenueCard venue={item.venue} system={item.system} events={item.events} href={venueHref(item.venue, key, filters)} />
-                  </li>
-                ),
-              )}
-            </ol>
-          </details>
-        </section>
-      ))}
-    </div>
+      {found}
+      <div className="space-y-12">
+        {groupByDay(events, now).map(([key, group]) => (
+          <section key={key} aria-labelledby={`day-${key}`}>
+            <details open className="group/day">
+              <summary className="mb-5 flex cursor-pointer list-none items-center gap-3 border-b-2 border-ink pb-2 group-[:not([open])]/day:mb-0 [&::-webkit-details-marker]:hidden">
+                <h2 id={`day-${key}`} className="flex items-baseline gap-3">
+                  <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
+                  <span className="text-base text-muted-foreground">{dayDate(key)}</span>
+                  <span className="inline-flex h-7 items-center self-center rounded-md bg-secondary px-2.5 text-sm font-semibold tabular-nums text-ink">
+                    {group.length} {group.length === 1 ? "event" : "events"}
+                  </span>
+                </h2>
+                <ChevronDown
+                  aria-hidden
+                  className="ml-auto size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
+                />
+              </summary>
+              <ol className={EVENT_GRID}>
+                {clusterByVenue(group).map((item) =>
+                  item.kind === "event" ? (
+                    <li key={item.event.id}>
+                      <EventCard event={item.event} now={now} />
+                    </li>
+                  ) : (
+                    <li key={`venue-${item.venue}`}>
+                      <VenueCard venue={item.venue} system={item.system} events={item.events} href={venueHref(item.venue, key, filters)} />
+                    </li>
+                  ),
+                )}
+              </ol>
+            </details>
+          </section>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** How the selected time window reads after "found for you". */
+const WHEN_PHRASE: Record<Filters["when"], string> = {
+  now: "happening right now",
+  today: "today",
+  tonight: "tonight",
+  tomorrow: "tomorrow",
+  weekend: "this weekend",
+  week: "within the next 7 days",
+  month: "within the next 30 days",
+};
+
+/** "57 events found for you within the next 7 days!" — sits right under the filter bar. */
+function FoundCount({ count, when }: { count: number; when: Filters["when"] }) {
+  return (
+    <p className="-mt-2 mb-8 text-lg font-semibold" role="status">
+      <span className="text-paprika tabular-nums">{count}</span> {count === 1 ? "event" : "events"} found for you{" "}
+      {WHEN_PHRASE[when]}!
+    </p>
   );
 }
 

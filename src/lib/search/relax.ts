@@ -22,6 +22,8 @@ export interface SearchResult {
   events: EventView[];
   /** Set when nothing matched exactly and a looser search was shown instead: what was loosened, for a notice. */
   relaxed: string | null;
+  /** The time window the events were found in (wider than the search's own when relaxed). */
+  when: Filters["when"];
 }
 
 /**
@@ -32,7 +34,7 @@ export interface SearchResult {
  */
 export async function searchEvents(f: Filters): Promise<SearchResult> {
   const exact = await findEvents(f);
-  if (exact.length || !f.ask) return { events: exact, relaxed: null };
+  if (exact.length || !f.ask) return { events: exact, relaxed: null, when: f.when };
 
   const steps: { patch: Partial<Filters>; note: string }[] = [];
   if (f.vibe.length) steps.push({ patch: { vibe: [] }, note: `without "${f.vibe.map((v) => VIBE_LABELS[v] ?? v).join(", ")}"` });
@@ -46,7 +48,7 @@ export async function searchEvents(f: Filters): Promise<SearchResult> {
     current = { ...current, ...step.patch };
     notes.push(step.note);
     const events = await findEvents(current);
-    if (events.length) return { events, relaxed: notes.join(", ") };
+    if (events.length) return { events, relaxed: notes.join(", "), when: current.when };
   }
-  return { events: [], relaxed: null };
+  return { events: [], relaxed: null, when: f.when };
 }
