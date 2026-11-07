@@ -4,12 +4,12 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { EVENT_GRID, EventCard } from "@/components/events/event-card";
 import { FilterBar } from "@/components/events/filter-bar";
+import { VenueCard } from "@/components/events/venue-card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Filters, parseFilters } from "@/lib/events/filters";
+import { type Filters, filtersToParams, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayLabel } from "@/lib/events/format";
-import { groupByDay } from "@/lib/events/grouping";
+import { clusterByVenue, groupByDay } from "@/lib/events/grouping";
 import { queryEvents } from "@/lib/events/query";
-
 
 export default function Home(props: PageProps<"/">) {
   return (
@@ -69,11 +69,17 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
               />
             </summary>
             <ol className={EVENT_GRID}>
-              {group.map((e) => (
-                <li key={e.id}>
-                  <EventCard event={e} now={now} />
-                </li>
-              ))}
+              {clusterByVenue(group).map((item) =>
+                item.kind === "event" ? (
+                  <li key={item.event.id}>
+                    <EventCard event={item.event} now={now} />
+                  </li>
+                ) : (
+                  <li key={`venue-${item.venue}`}>
+                    <VenueCard venue={item.venue} events={item.events} href={venueHref(item.venue, key, filters)} />
+                  </li>
+                ),
+              )}
             </ol>
           </details>
         </section>
@@ -85,7 +91,14 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
 /** Server components render once per request (after searchParams), so one clock read per render is stable. */
 const requestTime = () => Date.now();
 
-const hasFilters = (f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
+/** The venue day page, carrying the list's filters so it shows exactly what the tile counted. */
+function venueHref(venue: string, day: string, filters: Filters): string {
+  const params = filtersToParams(filters);
+  params.set("day", day);
+  return `/venues/${encodeURIComponent(venue)}?${params}`;
+}
+
+const hasFilters =(f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
