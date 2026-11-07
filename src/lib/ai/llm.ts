@@ -166,6 +166,23 @@ export async function embed(texts: string[]): Promise<Float32Array[]> {
   return out;
 }
 
+let embeddingsExhausted = false;
+
+/**
+ * Like `embed`, but never throws: if the daily embedding quota is used up (or the call fails), returns nulls
+ * and stops calling for the rest of this process. Callers must handle missing vectors.
+ */
+export async function embedOrNull(texts: string[]): Promise<(Float32Array | null)[]> {
+  if (!embeddingsExhausted) {
+    try {
+      return await embed(texts);
+    } catch (e) {
+      if (/429|RESOURCE_EXHAUSTED|quota/i.test((e as Error).message)) embeddingsExhausted = true;
+    }
+  }
+  return texts.map(() => null);
+}
+
 function normalize(v: Float32Array): Float32Array {
   let n = 0;
   for (const x of v) n += x * x;

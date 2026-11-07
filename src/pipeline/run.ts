@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import pLimit from "p-limit";
-import { embed } from "@/lib/ai/llm";
+import { embedOrNull } from "@/lib/ai/llm";
 import { getDb, schema } from "@/lib/db/client";
 import { geocode, inRegion } from "@/lib/geo/geocode";
 import { DEFAULT_DURATION_MS, type RawItem } from "@/shared/event";
@@ -172,7 +172,7 @@ async function prepare(c: CandidateEvent, rawItemId: number, log: Logger, stats:
 /** One embedding request for the whole batch, then dedup-merge each event in order. */
 async function embedAndSave(pending: Pending[], log: Logger, stats: RunStats) {
   if (!pending.length) return;
-  const vectors = await embed(pending.map(({ event: c }) => `${c.title}. ${c.venueName ?? ""}. ${c.summary}`));
+  const vectors = await embedOrNull(pending.map(({ event: c }) => `${c.title}. ${c.venueName ?? ""}. ${c.summary}`));
   for (const [i, { event: c, rawItemId }] of pending.entries()) {
     const res = await saveEvent({ ...c, embedding: vectors[i] }, rawItemId);
     if (res.mergedInto) {
