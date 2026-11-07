@@ -4,8 +4,8 @@ import { distanceM } from "@/lib/geo/geocode";
 import type { Category, Engagement, SourceType, VibeTag } from "@/shared/event";
 import { type Filters, timeWindow } from "./filters";
 
-/** Below this the event goes to the "Maybe" section instead of the main feed. */
-export const CONFIDENCE_THRESHOLD = 0.6;
+import { CONFIDENCE_THRESHOLD } from "./format";
+export { CONFIDENCE_THRESHOLD };
 
 export interface EventSourceView {
   type: SourceType;
@@ -70,7 +70,8 @@ export function queryEvents(f: Filters, opts: { ids?: string[]; now?: Date } = {
     .from(e)
     .where(and(...conditions))
     .all()
-    .filter((r) => f.vibe.every((v) => r.vibeTags.includes(v)));
+    .filter((r) => f.vibe.every((v) => r.vibeTags.includes(v)))
+    .filter((r) => matchesKeywords(f.q, `${r.title} ${r.summary} ${r.venueName ?? ""} ${r.address ?? ""}`));
 
   const sources = sourcesFor(rows.map((r) => r.id));
   const here = f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : null;
@@ -92,6 +93,13 @@ export function queryEvents(f: Filters, opts: { ids?: string[]; now?: Date } = {
   else views.sort(bySoon);
 
   return views.map(({ createdAt: _, ...v }) => v);
+}
+
+/** Plain keyword match (every word must appear). Natural-language search replaces this via `ids`. */
+function matchesKeywords(q: string | undefined, haystack: string): boolean {
+  if (!q) return true;
+  const text = haystack.toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w));
 }
 
 export function getEvent(id: string): EventView | null {

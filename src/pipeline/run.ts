@@ -169,7 +169,7 @@ async function finalizeAndSave(c: CandidateEvent, rawItemId: number, log: Logger
  * buzz_score (0–100) = the event's best per-source-type percentile of engagement.
  * Engagement metric: Reddit upvotes + 2×comments; SeatGeek popularity. Sources without engagement contribute nothing.
  */
-function recomputeBuzz() {
+export function recomputeBuzz() {
   const db = getDb();
   const rows = db
     .select({ eventId: schema.eventSources.eventId, type: schema.sources.type, engagement: schema.rawItems.engagement })

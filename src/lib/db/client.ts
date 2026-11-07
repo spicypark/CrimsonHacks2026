@@ -11,7 +11,8 @@ export type Db = BetterSQLite3Database<typeof schema>;
 const globalForDb = globalThis as unknown as { __pullupDb?: Db };
 
 function open(): Db {
-  const file = process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "pullup.db");
+  // `||` not `??`: an empty DATABASE_PATH= line must fall back too (SQLite treats "" as a throwaway temp DB).
+  const file = process.env.DATABASE_PATH?.trim() || path.join(process.cwd(), "data", "pullup.db");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const sqlite = new Database(file);
   sqlite.pragma("journal_mode = WAL"); // web app reads while the worker writes

@@ -12,7 +12,8 @@
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed-sources.ts",
     "db:generate": "drizzle-kit generate",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed:demo": "tsx --env-file-if-exists=.env.local scripts/seed-demo.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

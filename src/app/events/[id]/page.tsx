@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { getEvent } from "@/lib/events/query";
 
@@ -16,6 +17,7 @@ export default function EventPage(props: PageProps<"/events/[id]">) {
 
 async function Detail({ params }: { params: PageProps<"/events/[id]">["params"] }) {
   const { id } = await params;
+  await connection();
   const e = getEvent(id);
   if (!e) notFound();
   return (
