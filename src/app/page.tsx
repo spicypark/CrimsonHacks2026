@@ -2,7 +2,7 @@ import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { EventCard } from "@/components/events/event-card";
+import { EVENT_GRID, EventCard } from "@/components/events/event-card";
 import { FilterBar } from "@/components/events/filter-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Filters, parseFilters } from "@/lib/events/filters";
@@ -10,7 +10,6 @@ import { dayDate, dayLabel } from "@/lib/events/format";
 import { groupByDay } from "@/lib/events/grouping";
 import { queryEvents } from "@/lib/events/query";
 
-const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
 
 export default function Home(props: PageProps<"/">) {
   return (
@@ -41,7 +40,7 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
 
   if (filters.sort !== "soon") {
     return (
-      <ol className={GRID}>
+      <ol className={EVENT_GRID}>
         {events.map((e) => (
           <li key={e.id}>
             <EventCard event={e} now={now} />
@@ -69,7 +68,7 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
                 className="size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
               />
             </summary>
-            <ol className={GRID}>
+            <ol className={EVENT_GRID}>
               {group.map((e) => (
                 <li key={e.id}>
                   <EventCard event={e} now={now} />
@@ -121,7 +120,7 @@ function ListSkeleton() {
   return (
     <div aria-label="Loading events">
       <Skeleton className="mb-5 h-10 w-48" />
-      <div className={GRID}>
+      <div className={EVENT_GRID}>
         {Array.from({ length: 6 }, (_, i) => (
           <Skeleton key={i} className="aspect-[4/5] rounded-lg" />
         ))}
