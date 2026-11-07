@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { type Filters, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayKey, dayLabel } from "@/lib/events/format";
 import { type EventView, queryEvents } from "@/lib/events/query";
+import { semanticFilter } from "@/lib/search/semantic";
 
 const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
 
@@ -32,7 +33,9 @@ export default function Home(props: PageProps<"/">) {
 async function EventList({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const filters = parseFilters(await searchParams);
   await connection(); // live data: always render at request time, never at build
-  const events = queryEvents(filters);
+  // Search words are matched by meaning (embeddings), not exact text; everything else filters in SQL.
+  const candidates = queryEvents({ ...filters, q: undefined });
+  const events = filters.q ? await semanticFilter(filters.q, candidates) : candidates;
   const now = requestTime();
 
   if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
@@ -56,6 +59,9 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
           <h2 id={`day-${key}`} className="mb-5 flex items-baseline gap-3 border-b-2 border-ink pb-2">
             <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
             <span className="text-base text-muted-foreground">{dayDate(key)}</span>
+            <span className="inline-flex h-7 items-center self-center rounded-md bg-secondary px-2.5 text-sm font-semibold tabular-nums text-ink">
+              {group.length} {group.length === 1 ? "event" : "events"}
+            </span>
           </h2>
           <ol className={GRID}>
             {group.map((e) => (
@@ -84,7 +90,7 @@ function groupByDay(events: EventView[], now: number): [string, EventView[]][] {
   return [...groups.entries()];
 }
 
-const hasFilters = (f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
+const hasFilters = (f: Filters) => !!(f.q || f.ask || f.near || f.cat.length || f.vibe.length || f.free || f.when !== "week");
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
@@ -104,11 +110,16 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 
 function FilterBarSkeleton() {
   return (
-    <div className="flex flex-col gap-3 lg:flex-row" aria-hidden>
-      <Skeleton className="h-11 w-full rounded-md lg:max-w-sm" />
+    <div className="space-y-3" aria-hidden>
       <div className="flex gap-2">
+        <Skeleton className="h-11 flex-1 rounded-md" />
+        <Skeleton className="h-11 w-11 rounded-md sm:w-28" />
+        <Skeleton className="h-11 w-11 rounded-md sm:w-28" />
+      </div>
+      <div className="flex gap-2 overflow-hidden">
+        <Skeleton className="h-10 w-80 shrink-0 rounded-md" />
         {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-11 w-24 rounded-md" />
+          <Skeleton key={i} className="h-10 w-24 shrink-0 rounded-md" />
         ))}
       </div>
     </div>

@@ -186,3 +186,17 @@
 .maplibregl-ctrl-attrib {
   font-size: 10px;
 }
+
+/* Logo: the sun pulls up over the ridge once on load, and nudges up again on hover. */
+@keyframes sun-rise {
+  from { transform: translateY(9px); }
+  to { transform: translateY(0); }
+}
+.logo-sun {
+  animation: sun-rise 900ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  transition: transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.group:hover .logo-sun { transform: translateY(-1.5px); }
+@media (prefers-reduced-motion: reduce) {
+  .logo-sun { animation: none; transition: none; }
+}
