@@ -7,7 +7,7 @@ import { type Tier, popularityTier } from "@/lib/events/popularity";
 import type { Category, VibeTag } from "@/shared/event";
 import { EMPTY_FILTERS, MapFilterPanel, type MapFilters, activeFilterCount } from "./map-filters";
 import { MapCanvas } from "./map-canvas";
-import { type Range, rangeWindow } from "./map-time";
+import { LAST_DAY, type Range, rangeWindow } from "./map-time";
 import { TimeScrubber } from "./time-scrubber";
 
 /** The slice of an event the map needs. `search` is the pre-lowercased text keyword search runs against. */
@@ -37,7 +37,7 @@ export interface PlacedEvent extends MapEvent {
 export function LiveMap({ events, now }: { events: MapEvent[]; now: number }) {
   const placed = useMemo(() => place(events), [events]);
   const [filters, setFilters] = useState<MapFilters>(EMPTY_FILTERS);
-  const [range, setRangeState] = useState<Range>({ key: "today", from: 0, to: 0 });
+  const [range, setRangeState] = useState<Range>({ key: "week", from: 0, to: LAST_DAY });
   const win = rangeWindow(range, now);
   const [time, setTime] = useState(win.start);
   const t = Math.min(Math.max(time, win.start), win.end);
