@@ -3,7 +3,7 @@ import { addDays, startOfDay } from "date-fns";
 import { TIME_ZONE } from "@/shared/time";
 
 /** Slider resolution. */
-export const STEP_MS = 15 * 60_000;
+export const STEP_MS = 5 * 60_000;
 /** The map only ever covers the next 7 days (days 0–6, Utah time), so no window can exceed a week. */
 export const LAST_DAY = 6;
 
