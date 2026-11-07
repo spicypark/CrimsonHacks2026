@@ -10,6 +10,7 @@ import { type Filters, filtersToParams, parseFilters } from "@/lib/events/filter
 import { dayDate, dayLabel } from "@/lib/events/format";
 import { clusterByVenue, groupByDay } from "@/lib/events/grouping";
 import { queryEvents } from "@/lib/events/query";
+import { semanticFilter } from "@/lib/search/semantic";
 
 export default function Home(props: PageProps<"/">) {
   return (
@@ -33,7 +34,9 @@ export default function Home(props: PageProps<"/">) {
 async function EventList({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const filters = parseFilters(await searchParams);
   await connection(); // live data: always render at request time, never at build
-  const events = queryEvents(filters);
+  // Search words are matched by meaning (embeddings), not exact text; everything else filters in SQL.
+  const candidates = queryEvents({ ...filters, q: undefined });
+  const events = filters.q ? await semanticFilter(filters.q, candidates) : candidates;
   const now = requestTime();
 
   if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
@@ -59,13 +62,13 @@ async function EventList({ searchParams }: { searchParams: PageProps<"/">["searc
               <h2 id={`day-${key}`} className="flex items-baseline gap-3">
                 <span className="text-3xl font-bold tracking-tight">{dayLabel(key, new Date(now))}</span>
                 <span className="text-base text-muted-foreground">{dayDate(key)}</span>
+                <span className="inline-flex h-7 items-center self-center rounded-md bg-secondary px-2.5 text-sm font-semibold tabular-nums text-ink">
+                  {group.length} {group.length === 1 ? "event" : "events"}
+                </span>
               </h2>
-              <span className="ml-auto text-sm text-muted-foreground">
-                {group.length} {group.length === 1 ? "event" : "events"}
-              </span>
               <ChevronDown
                 aria-hidden
-                className="size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
+                className="ml-auto size-6 shrink-0 text-muted-foreground transition-transform duration-200 group-[:not([open])]/day:-rotate-90"
               />
             </summary>
             <ol className={EVENT_GRID}>
@@ -98,7 +101,7 @@ function venueHref(venue: string, day: string, filters: Filters): string {
   return `/venues/${encodeURIComponent(venue)}?${params}`;
 }
 
-const hasFilters =(f: Filters) => !!(f.q || f.cat.length || f.vibe.length || f.free || f.when !== "week");
+const hasFilters = (f: Filters) => !!(f.q || f.ask || f.near || f.cat.length || f.vibe.length || f.free || f.when !== "week");
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
@@ -118,11 +121,16 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 
 function FilterBarSkeleton() {
   return (
-    <div className="flex flex-col gap-3 lg:flex-row" aria-hidden>
-      <Skeleton className="h-11 w-full rounded-md lg:max-w-sm" />
+    <div className="space-y-3" aria-hidden>
       <div className="flex gap-2">
+        <Skeleton className="h-11 flex-1 rounded-md" />
+        <Skeleton className="h-11 w-11 rounded-md sm:w-28" />
+        <Skeleton className="h-11 w-11 rounded-md sm:w-28" />
+      </div>
+      <div className="flex gap-2 overflow-hidden">
+        <Skeleton className="h-10 w-80 shrink-0 rounded-md" />
         {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-11 w-24 rounded-md" />
+          <Skeleton key={i} className="h-10 w-24 shrink-0 rounded-md" />
         ))}
       </div>
     </div>
