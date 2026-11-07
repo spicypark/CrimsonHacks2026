@@ -75,6 +75,9 @@ async function Detail({ params }: { params: PageProps<"/events/[id]">["params"] 
           {e.status === "cancelled" && (
             <li className="rounded bg-destructive px-2 py-0.5 text-xs font-bold text-paper">Cancelled</li>
           )}
+          {e.status === "changed" && (
+            <li className="rounded border border-destructive px-2 py-0.5 text-xs font-semibold text-destructive">Details changed</li>
+          )}
           {e.confidence < CONFIDENCE_THRESHOLD && (
             <li className="rounded border border-destructive px-2 py-0.5 text-xs font-semibold text-destructive">Unconfirmed</li>
           )}

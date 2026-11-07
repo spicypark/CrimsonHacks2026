@@ -16,14 +16,15 @@ export function formatTime(iso: string): string {
   return format(d, d.getMinutes() ? "h:mm a" : "h a");
 }
 
-/** "7:30–10 PM", "11 AM–1 PM", or "7 PM–~10 PM" when the end is estimated. */
+/** "7:30–10 PM", "11 AM–1 PM", or "7 PM, ends around 10 PM" when the end is estimated. */
 export function formatTimeRange(startIso: string, endIso: string, endEstimated: boolean): string {
   const s = local(startIso);
   const e = local(endIso);
   const sameMeridiem = format(s, "a") === format(e, "a") && differenceInCalendarDays(e, s) === 0;
   const start = format(s, s.getMinutes() ? (sameMeridiem ? "h:mm" : "h:mm a") : sameMeridiem ? "h" : "h a");
   const end = formatTime(endIso);
-  return `${start}–${endEstimated ? "~" : ""}${end}`;
+  if (endEstimated) return `${formatTime(startIso)}, ends around ${end}`;
+  return `${start}–${end}`;
 }
 
 /** "Fri, Nov 7" */

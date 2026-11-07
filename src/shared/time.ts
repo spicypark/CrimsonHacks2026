@@ -6,7 +6,8 @@ export const TIME_ZONE = "America/Denver";
 export function utahLocalToIso(localDate: string, localTime = "19:00:00"): string {
   const [y, m, d] = localDate.split("-").map(Number);
   const [hh, mm = 0, ss = 0] = localTime.split(":").map(Number);
-  return new TZDate(y, m - 1, d, hh, mm, ss, TIME_ZONE).toISOString();
+  // TZDate#toISOString keeps the -07:00 offset; the DB compares ISO strings lexically, so normalize to UTC "Z".
+  return new Date(new TZDate(y, m - 1, d, hh, mm, ss, TIME_ZONE).getTime()).toISOString();
 }
 
 /** Parse anything date-like into ISO UTC, or null if unparseable. Strings without an offset are treated as Utah local. */

@@ -13,7 +13,11 @@ export function requireEnv(name: string): string {
 
 export const env = {
   get geminiKey() { return optional("GEMINI_API_KEY"); },
-  get geminiModel() { return optional("GEMINI_MODEL") ?? "gemini-2.5-flash"; },
+  /** Comma-separated, tried in order (falls through on overload/timeouts). */
+  get geminiModels() {
+    return (optional("GEMINI_MODEL") ?? "gemini-3.5-flash,gemini-3.6-flash,gemini-3.5-flash-lite")
+      .split(",").map((m) => m.trim()).filter(Boolean);
+  },
   get geminiEmbedModel() { return optional("GEMINI_EMBED_MODEL") ?? "gemini-embedding-001"; },
   get groqKey() { return optional("GROQ_API_KEY"); },
   get groqModel() { return optional("GROQ_MODEL") ?? "llama-3.3-70b-versatile"; },

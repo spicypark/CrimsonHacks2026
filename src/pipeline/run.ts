@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import pLimit from "p-limit";
-import { embed } from "@/lib/ai/llm";
+import { embedOrNull } from "@/lib/ai/llm";
 import { getDb, schema } from "@/lib/db/client";
 import { geocode, inRegion } from "@/lib/geo/geocode";
 import { DEFAULT_DURATION_MS, type RawItem } from "@/shared/event";
@@ -20,7 +20,7 @@ export interface RunStats {
   errors: number;
 }
 
-const ENRICH_BATCH = 10;
+const ENRICH_BATCH = 25;
 const AI_CONCURRENCY = 3;
 
 /** Runs the whole pipeline once: every enabled source (or the given ids) → fetch → extract → geocode → merge. */
@@ -85,26 +85,29 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
   const markDone = (rowId: number, hash: string) =>
     db.update(schema.rawItems).set({ processedHash: hash }).where(eq(schema.rawItems.id, rowId)).run();
 
-  // Structured items: enrich in batches.
+  // Structured items: enrich in batches, then embed + save each batch together.
   const structured = todo.filter((t) => t.item.event);
   for (let i = 0; i < structured.length; i += ENRICH_BATCH) {
     const chunk = structured.slice(i, i + ENRICH_BATCH);
     try {
       const enriched = await enrichEvents(chunk.map((t) => t.item.event!));
       log.info("extract", `Tagged ${chunk.length} structured events from ${source.label}`);
+      const pending: Pending[] = [];
       for (const [j, t] of chunk.entries()) {
         const c = enriched[j];
-        if (c) await finalizeAndSave(c, t.rowId, log, stats);
-        else stats.dropped++;
-        markDone(t.rowId, t.hash);
+        const p = c ? await prepare(c, t.rowId, log, stats) : null;
+        if (!c) stats.dropped++;
+        if (p) pending.push(p);
       }
+      await embedAndSave(pending, log, stats);
+      for (const t of chunk) markDone(t.rowId, t.hash);
     } catch (e) {
       stats.errors++;
-      log.error("extract", `Enrichment failed: ${(e as Error).message}`);
+      log.error("extract", `Batch failed (will retry next run): ${(e as Error).message}`);
     }
   }
 
-  // Unstructured items: AI extraction, a few at a time.
+  // Unstructured items: AI extraction (calls are paced globally in the AI module).
   const limit = pLimit(AI_CONCURRENCY);
   await Promise.all(
     todo
@@ -117,7 +120,12 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
               titles: found.map((f) => f.title),
             });
             if (!found.length) stats.dropped++;
-            for (const c of found) await finalizeAndSave(c, t.rowId, log, stats);
+            const pending: Pending[] = [];
+            for (const c of found) {
+              const p = await prepare(c, t.rowId, log, stats);
+              if (p) pending.push(p);
+            }
+            await embedAndSave(pending, log, stats);
             markDone(t.rowId, t.hash);
           } catch (e) {
             stats.errors++;
@@ -128,15 +136,21 @@ async function runSource(source: SourceRef, log: Logger, stats: RunStats) {
   );
 }
 
-async function finalizeAndSave(c: CandidateEvent, rawItemId: number, log: Logger, stats: RunStats) {
+interface Pending {
+  event: Omit<ReadyEvent, "embedding">;
+  rawItemId: number;
+}
+
+/** End-time estimate, drop finished events, geocode, and drop anything outside the Wasatch Front. */
+async function prepare(c: CandidateEvent, rawItemId: number, log: Logger, stats: RunStats): Promise<Pending | null> {
   const start = new Date(c.startsAt).getTime();
   const estimatedEnd = !c.endsAt || new Date(c.endsAt).getTime() <= start;
   const endsAt = estimatedEnd
     ? new Date(start + DEFAULT_DURATION_MS[c.category ?? "community"]).toISOString()
-    : c.endsAt!;
+    : new Date(c.endsAt!).toISOString();
   if (new Date(endsAt).getTime() < Date.now()) {
     stats.dropped++;
-    return;
+    return null;
   }
 
   if (c.lat == null || c.lng == null) {
@@ -150,18 +164,24 @@ async function finalizeAndSave(c: CandidateEvent, rawItemId: number, log: Logger
   if (c.lat != null && c.lng != null && !inRegion({ lat: c.lat, lng: c.lng })) {
     stats.dropped++;
     log.warn("geocode", `Outside Wasatch Front, skipped: ${c.title}`);
-    return;
+    return null;
   }
+  return { event: { ...c, startsAt: new Date(c.startsAt).toISOString(), endsAt, endsAtEstimated: estimatedEnd }, rawItemId };
+}
 
-  const [embedding] = await embed([`${c.title}. ${c.venueName ?? ""}. ${c.summary}`]);
-  const ready: ReadyEvent = { ...c, endsAt, endsAtEstimated: estimatedEnd, embedding };
-  const res = await saveEvent(ready, rawItemId);
-  if (res.mergedInto) {
-    stats.merged++;
-    log.info("merge", `Merged "${c.title}" into existing event (similarity ${res.similarity?.toFixed(2)})`, { eventId: res.eventId });
-  } else {
-    stats.created++;
-    log.info("merge", `New event: ${c.title}`, { eventId: res.eventId });
+/** One embedding request for the whole batch, then dedup-merge each event in order. */
+async function embedAndSave(pending: Pending[], log: Logger, stats: RunStats) {
+  if (!pending.length) return;
+  const vectors = await embedOrNull(pending.map(({ event: c }) => `${c.title}. ${c.venueName ?? ""}. ${c.summary}`));
+  for (const [i, { event: c, rawItemId }] of pending.entries()) {
+    const res = await saveEvent({ ...c, embedding: vectors[i] }, rawItemId);
+    if (res.mergedInto) {
+      stats.merged++;
+      log.info("merge", `Merged "${c.title}" into existing event (similarity ${res.similarity?.toFixed(2)})`, { eventId: res.eventId });
+    } else {
+      stats.created++;
+      log.info("merge", `New event: ${c.title}`, { eventId: res.eventId });
+    }
   }
 }
 

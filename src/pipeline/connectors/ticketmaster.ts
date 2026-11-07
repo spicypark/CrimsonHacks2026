@@ -69,9 +69,10 @@ export const ticketmaster: Connector = {
 function toRawItem(e: TmEvent): RawItem {
   const venue = e._embedded?.venues?.[0];
   const price = e.priceRanges?.[0];
+  // 16:9 image closest to 640px wide: sharp on cards and the detail hero without 2048px downloads.
   const image = [...(e.images ?? [])]
     .filter((i) => i.ratio === "16_9")
-    .sort((a, b) => b.width - a.width)[0] ?? e.images?.[0];
+    .sort((a, b) => Math.abs(a.width - 640) - Math.abs(b.width - 640))[0] ?? e.images?.[0];
   const segment = e.classifications?.[0]?.segment?.name ?? "";
   // Date-only listings (time TBA) default to 7 PM Utah time.
   const startsAt = e.dates.start.dateTime ?? (e.dates.start.localDate ? utahLocalToIso(e.dates.start.localDate) : null);

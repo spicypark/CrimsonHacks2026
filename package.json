@@ -6,7 +6,7 @@
     "dev": "concurrently -k -n web,worker -c cyan,magenta \"next dev\" \"npm:worker\"",
     "dev:web": "next dev",
     "build": "next build",
-    "start": "concurrently -k -n web,worker \"next start\" \"npm:worker\"",
+    "start": "npm run seed && concurrently -k -n web,worker \"next start\" \"npm:worker\"",
     "worker": "tsx --env-file-if-exists=.env.local src/pipeline/worker.ts",
     "pipeline": "tsx --env-file-if-exists=.env.local src/pipeline/worker.ts --once",
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed-sources.ts",

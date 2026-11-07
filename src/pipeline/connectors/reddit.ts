@@ -87,7 +87,14 @@ export const reddit: Connector = {
   },
 };
 
+/** Reddit rate-limits anonymous feed reads hard; keep consecutive subreddit fetches well apart. */
+const RSS_GAP_MS = 8_000;
+let lastRss = 0;
+
 async function fromAtom(sub: string): Promise<RawItem[]> {
+  const wait = lastRss + RSS_GAP_MS - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastRss = Date.now();
   const $ = cheerio.load(await getText(`https://www.reddit.com/r/${sub}/new/.rss?limit=100`), { xml: true });
   const cutoff = Date.now() - MAX_AGE_DAYS * 864e5;
   return $("entry")
