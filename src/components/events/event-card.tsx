@@ -24,6 +24,8 @@ export function EventCard({ event: e, now }: { event: EventView; now: number }) 
   const price = priceLabel(e.isFree, e.priceText);
   const traction = totalEngagement(e.sources.map((s) => s.engagement));
   const sourceTypes = [...new Set(e.sources.map((s) => SOURCE_LABELS[s.type]))];
+  // Distinct feeds, not listings: five timed-entry listings on one ticket site are still one source.
+  const sourceCount = new Set(e.sources.map((s) => s.label)).size;
   const tags = e.vibeTags.filter((t) => t !== "free").slice(0, 2);
   const [time, meridiem] = formatTime(e.startsAt).split(" ");
 
@@ -120,10 +122,10 @@ export function EventCard({ event: e, now }: { event: EventView; now: number }) 
                 <span className="sr-only"> comments</span>
               </span>
             )}
-            {e.sources.length > 1 ? (
+            {sourceCount > 1 ? (
               <span className="flex items-center gap-1 font-medium text-sage">
                 <Layers className="size-3.5" aria-hidden />
-                On {e.sources.length} sources
+                On {sourceCount} sources
               </span>
             ) : (
               sourceTypes[0] && <span>via {sourceTypes[0]}</span>

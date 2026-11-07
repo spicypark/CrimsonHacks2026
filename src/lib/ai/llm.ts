@@ -1,7 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import Groq from "groq-sdk";
 import { z } from "zod";
 import { env } from "@/lib/env";
+
+/** Per-call ceiling so one slow AI call can't stall a pipeline run; the next provider is tried on timeout. */
+const CALL_TIMEOUT_MS = 45_000;
 
 /**
  * The AI seam. Callers ask for a typed JSON object; which provider answers is hidden.
@@ -27,30 +30,56 @@ interface Provider {
 let gemini: GoogleGenAI | null = null;
 const geminiClient = () => (gemini ??= new GoogleGenAI({ apiKey: env.geminiKey! }));
 
-const geminiProvider: Provider = {
-  name: "gemini",
+/** One provider per configured Gemini model, so a 503 "high demand" on one model falls through to the next. */
+const geminiProvider = (model: string): Provider => ({
+  name: `gemini:${model}`,
   available: () => !!env.geminiKey,
   async json(req, jsonSchema) {
-    const res = await geminiClient().models.generateContent({
-      model: env.geminiModel,
-      contents: req.prompt,
-      config: {
-        systemInstruction: req.system,
-        responseMimeType: "application/json",
-        responseJsonSchema: jsonSchema,
-        temperature: 0.2,
-      },
-    });
-    return res.text ?? "";
+    const call = (constrained: boolean) =>
+      geminiClient().models.generateContent({
+        model,
+        contents: req.prompt,
+        config: {
+          systemInstruction: constrained
+            ? req.system
+            : `${req.system}\n\nRespond ONLY with JSON matching this JSON Schema:\n${JSON.stringify(jsonSchema)}`,
+          responseMimeType: "application/json",
+          ...(constrained ? { responseJsonSchema: geminiSafeSchema(jsonSchema) } : {}),
+          temperature: 0.2,
+          // Extraction is pattern-matching, not reasoning: low thinking keeps calls fast and cheap.
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+        },
+      });
+    try {
+      return (await call(true)).text ?? "";
+    } catch (e) {
+      // Gemini supports a subset of JSON Schema; if it rejects ours, ask for JSON via the prompt and let zod validate.
+      if (!/INVALID_ARGUMENT|"code":400/.test((e as Error).message)) throw e;
+      return (await call(false)).text ?? "";
+    }
   },
-};
+});
+
+/** Drops JSON Schema keywords Gemini rejects: `$schema`, `additionalProperties`, and zod's ±2^53 integer bounds. */
+function geminiSafeSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(geminiSafeSchema);
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (k === "$schema" || k === "additionalProperties") continue;
+    if ((k === "minimum" || k === "maximum") && typeof v === "number" && Math.abs(v) >= Number.MAX_SAFE_INTEGER) continue;
+    out[k] = geminiSafeSchema(v);
+  }
+  return out;
+}
 
 let groq: Groq | null = null;
 const groqProvider: Provider = {
   name: "groq",
   available: () => !!env.groqKey,
   async json(req, jsonSchema) {
-    groq ??= new Groq({ apiKey: env.groqKey! });
+    groq ??= new Groq({ apiKey: env.groqKey!, timeout: CALL_TIMEOUT_MS, maxRetries: 1 });
     const res = await groq.chat.completions.create({
       model: env.groqModel,
       temperature: 0.2,
@@ -64,33 +93,77 @@ const groqProvider: Provider = {
   },
 };
 
-const PROVIDERS = [geminiProvider, groqProvider];
+const providers = (): Provider[] => [...env.geminiModels.map(geminiProvider), groqProvider];
+
+/**
+ * Free-tier quotas are per minute, so AI requests are started at most once every `AI_MIN_INTERVAL_MS`
+ * (default 2.5 s) across the whole process. Calls may still overlap; only their start times are spaced.
+ */
+const MIN_INTERVAL_MS = Number(process.env.AI_MIN_INTERVAL_MS ?? 2500);
+let gate: Promise<void> = Promise.resolve();
+let lastStart = 0;
+function paced<T>(fn: () => Promise<T>): Promise<T> {
+  const turn = gate.then(async () => {
+    const wait = lastStart + MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastStart = Date.now();
+  });
+  gate = turn;
+  return turn.then(fn);
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const isTransient = (msg: string) => /\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|aborted|timed? ?out/i.test(msg);
+
+/** If every provider failed for a transient reason (quota/overload/timeout), wait this long and try the chain again. */
+const RETRY_DELAYS_MS = [20_000, 45_000];
 
 export async function generateJson<T>(req: JsonRequest<T>): Promise<T> {
   const jsonSchema = z.toJSONSchema(req.schema, { target: "draft-7" });
   const errors: string[] = [];
-  for (const p of PROVIDERS.filter((x) => x.available())) {
-    try {
-      const raw = await p.json(req as JsonRequest<unknown>, jsonSchema);
-      return req.schema.parse(JSON.parse(raw));
-    } catch (e) {
-      errors.push(`${p.name}: ${(e as Error).message.slice(0, 200)}`);
+  for (let attempt = 0; ; attempt++) {
+    const round: string[] = [];
+    for (const p of providers().filter((x) => x.available())) {
+      try {
+        const raw = await paced(() => p.json(req as JsonRequest<unknown>, jsonSchema));
+        return req.schema.parse(JSON.parse(raw));
+      } catch (e) {
+        round.push(`${p.name}: ${(e as Error).message.slice(0, 200)}`);
+      }
     }
+    errors.push(...round);
+    const allTransient = round.length > 0 && round.every(isTransient);
+    if (!allTransient || attempt >= RETRY_DELAYS_MS.length) break;
+    await sleep(RETRY_DELAYS_MS[attempt]);
   }
   throw new Error(`AI task "${req.task}" failed — ${errors.join(" | ") || "no AI provider configured (set GEMINI_API_KEY)"}`);
 }
 
 export const EMBED_DIMS = 768;
+const EMBED_BATCH = 100; // API maximum per request
 
-/** Embeds texts with Gemini. Returns unit-length Float32Arrays (so cosine = dot product). */
+/** Embeds texts with Gemini in batches of 100. Returns unit-length Float32Arrays (so cosine = dot product). */
 export async function embed(texts: string[]): Promise<Float32Array[]> {
-  if (!texts.length) return [];
-  const res = await geminiClient().models.embedContent({
-    model: env.geminiEmbedModel,
-    contents: texts,
-    config: { outputDimensionality: EMBED_DIMS },
-  });
-  return (res.embeddings ?? []).map((e) => normalize(Float32Array.from(e.values ?? [])));
+  const out: Float32Array[] = [];
+  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+    const batch = texts.slice(i, i + EMBED_BATCH);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await paced(() =>
+          geminiClient().models.embedContent({
+            model: env.geminiEmbedModel,
+            contents: batch,
+            config: { outputDimensionality: EMBED_DIMS, abortSignal: AbortSignal.timeout(CALL_TIMEOUT_MS) },
+          }),
+        );
+        out.push(...(res.embeddings ?? []).map((e) => normalize(Float32Array.from(e.values ?? []))));
+        break;
+      } catch (e) {
+        if (!isTransient((e as Error).message) || attempt >= RETRY_DELAYS_MS.length) throw e;
+        await sleep(RETRY_DELAYS_MS[attempt]);
+      }
+    }
+  }
+  return out;
 }
 
 function normalize(v: Float32Array): Float32Array {
