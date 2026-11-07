@@ -59,7 +59,10 @@ async function loop() {
 }
 
 if (process.argv.includes("--once")) {
-  execute(requestRun()).then(() => process.exit(0));
+  // Optional: `npm run pipeline -- --sources=14,15` limits the run to those source ids.
+  const only = process.argv.find((a) => a.startsWith("--sources="))?.split("=")[1];
+  const sourceIds = only ? only.split(",").map(Number).filter(Number.isFinite) : undefined;
+  execute(requestRun(), sourceIds).then(() => process.exit(0));
 } else {
   void loop();
 }

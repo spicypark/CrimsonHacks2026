@@ -50,7 +50,7 @@ export const VIBE_TAGS = [
 export const VibeTag = z.enum(VIBE_TAGS);
 export type VibeTag = z.infer<typeof VibeTag>;
 
-export const SOURCE_TYPES = ["reddit", "ticketmaster", "seatgeek", "ical", "webpage"] as const;
+export const SOURCE_TYPES = ["reddit", "ticketmaster", "seatgeek", "ical", "webpage", "communico"] as const;
 export const SourceType = z.enum(SOURCE_TYPES);
 export type SourceType = z.infer<typeof SourceType>;
 

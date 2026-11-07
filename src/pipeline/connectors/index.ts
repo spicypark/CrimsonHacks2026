@@ -1,4 +1,5 @@
 import type { SourceType } from "@/shared/event";
+import { communico } from "./communico";
 import { feed } from "./feed";
 import { reddit } from "./reddit";
 import { seatgeek } from "./seatgeek";
@@ -13,6 +14,7 @@ export const connectors: Record<SourceType, Connector> = {
   seatgeek,
   ical: feed,
   webpage,
+  communico,
 };
 
 export type { Connector, SourceRef } from "./types";

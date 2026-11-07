@@ -60,6 +60,7 @@ export const SOURCE_LABELS: Record<SourceType, string> = {
   seatgeek: "SeatGeek",
   ical: "Calendar",
   webpage: "Web",
+  communico: "Library",
 };
 
 export const VIBE_LABELS: Record<VibeTag, string> = {

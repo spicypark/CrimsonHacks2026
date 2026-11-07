@@ -5,14 +5,18 @@ import fs from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
 
-export type Db = BetterSQLite3Database<typeof schema>;
+export type Db = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
 
 // One connection per process; survives Next.js dev hot reloads.
 const globalForDb = globalThis as unknown as { __pullupDb?: Db };
 
+/** Absolute path of the SQLite file. `||` not `??`: an empty DATABASE_PATH= must fall back too (SQLite treats "" as a throwaway temp DB). */
+export function dbPath(): string {
+  return path.resolve(process.env.DATABASE_PATH?.trim() || path.join(process.cwd(), "data", "pullup.db"));
+}
+
 function open(): Db {
-  // `||` not `??`: an empty DATABASE_PATH= line must fall back too (SQLite treats "" as a throwaway temp DB).
-  const file = process.env.DATABASE_PATH?.trim() || path.join(process.cwd(), "data", "pullup.db");
+  const file = dbPath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const sqlite = new Database(file);
   sqlite.pragma("journal_mode = WAL"); // web app reads while the worker writes

@@ -14,7 +14,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "seed:demo": "tsx --env-file-if-exists=.env.local scripts/seed-demo.ts",
-    "postinstall": "node -e \"require('fs').copyFileSync('node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs','public/maplibre-gl-worker.mjs')\""
+    "postinstall": "node -e \"require('fs').copyFileSync('node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs','public/maplibre-gl-worker.mjs')\"",
+    "snapshot": "tsx --env-file-if-exists=.env.local scripts/snapshot.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

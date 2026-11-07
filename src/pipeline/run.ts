@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import pLimit from "p-limit";
 import { embedOrNull } from "@/lib/ai/llm";
 import { getDb, schema } from "@/lib/db/client";
@@ -53,6 +53,7 @@ export async function runPipeline(opts: { runId: number | null; sourceIds?: numb
     }
   }
 
+  await backfillCoordinates(log);
   recomputeBuzz();
   log.info("run", "Run finished", stats);
   return stats;
@@ -154,12 +155,13 @@ async function prepare(c: CandidateEvent, rawItemId: number, log: Logger, stats:
   }
 
   if (c.lat == null || c.lng == null) {
-    const query = [c.venueName, c.address].filter(Boolean).join(", ");
-    const p = query ? await geocode(query) : null;
+    const queries = geocodeQueries(c.venueName, c.address);
+    let p = null;
+    for (const q of queries) if ((p = await geocode(q))) break;
     if (p) {
       log.info("geocode", `${c.title} → ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`);
       c = { ...c, lat: p.lat, lng: p.lng };
-    } else log.warn("geocode", `Could not place "${c.title}" (${query || "no location"})`);
+    } else log.warn("geocode", `Could not place "${c.title}" (${queries.join(" | ") || "no location"})`);
   }
   if (c.lat != null && c.lng != null && !inRegion({ lat: c.lat, lng: c.lng })) {
     stats.dropped++;
@@ -183,6 +185,40 @@ async function embedAndSave(pending: Pending[], log: Logger, stats: RunStats) {
       log.info("merge", `New event: ${c.title}`, { eventId: res.eventId });
     }
   }
+}
+
+/** Venue-name candidates for geocoding, most specific first. */
+function geocodeQueries(venueName: string | null, address: string | null): string[] {
+  return [
+    ...new Set(
+      [address, venueName && address && !address.includes(venueName) ? `${venueName}, ${address}` : null, venueName].filter(
+        (q): q is string => !!q?.trim(),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Retries upcoming events that still have no coordinates (geocoder improvements apply retroactively;
+ * the cache keeps repeated misses free). Events stay listed either way; this only gets them on the map.
+ */
+async function backfillCoordinates(log: Logger) {
+  const db = getDb();
+  const missing = db
+    .select({ id: schema.events.id, title: schema.events.title, venueName: schema.events.venueName, address: schema.events.address })
+    .from(schema.events)
+    .where(and(isNull(schema.events.lat), gt(schema.events.endsAt, new Date().toISOString())))
+    .all();
+  let fixed = 0;
+  for (const e of missing) {
+    let p = null;
+    for (const q of geocodeQueries(e.venueName, e.address)) if ((p = await geocode(q))) break;
+    if (p && inRegion(p)) {
+      db.update(schema.events).set({ lat: p.lat, lng: p.lng }).where(eq(schema.events.id, e.id)).run();
+      fixed++;
+    }
+  }
+  if (missing.length) log.info("geocode", `Backfill: placed ${fixed} of ${missing.length} events missing coordinates`);
 }
 
 /**

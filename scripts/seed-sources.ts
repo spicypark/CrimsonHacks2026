@@ -5,7 +5,7 @@
  * Feed/page URLs are candidates — the first pipeline run marks any dead ones with last_error
  * in the admin view; disable or replace those.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/client";
 import type { SourceType } from "@/shared/event";
 
@@ -18,8 +18,17 @@ const SEED: { type: SourceType; target: string; label: string }[] = [
   { type: "reddit", target: "uofu", label: "r/uofu" },
   { type: "reddit", target: "Provo", label: "r/Provo" },
   { type: "webpage", target: "https://www.visitsaltlake.com/events/", label: "Visit Salt Lake events" },
-  { type: "webpage", target: "https://www.slcpl.org/events", label: "Salt Lake City Public Library" },
-  { type: "webpage", target: "https://calendar.utah.edu/", label: "University of Utah calendar" },
+  // Verified 2026-11-06: University of Utah publishes its events calendar through Trumba.
+  { type: "ical", target: "https://www.trumba.com/calendars/university-of-utah.ics", label: "University of Utah events" },
+  // Both library systems run Communico calendars with a public JSON feed.
+  { type: "communico", target: "https://slcpl.libnet.info", label: "Salt Lake City Public Library" },
+  { type: "communico", target: "https://slcls.libnet.info", label: "Salt Lake County Library" },
+];
+
+/** Sources that turned out not to work; disabled (not deleted) so their history stays in the admin view. */
+const RETIRED = [
+  "https://www.slcpl.org/events", // page renders events client-side; replaced by the Communico feed
+  "https://calendar.utah.edu/", // host no longer resolves; replaced by the Trumba feed
 ];
 
 const db = getDb();
@@ -35,4 +44,5 @@ for (const s of SEED) {
     added++;
   }
 }
-console.log(`Seeded ${added} new sources (${SEED.length - added} already present).`);
+const retired = db.update(schema.sources).set({ enabled: false }).where(inArray(schema.sources.target, RETIRED)).run().changes;
+console.log(`Seeded ${added} new sources (${SEED.length - added} already present); disabled ${retired} retired.`);

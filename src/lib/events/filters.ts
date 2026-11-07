@@ -57,8 +57,17 @@ export function filtersToParams(f: Partial<Filters>): URLSearchParams {
   return p;
 }
 
-/** Resolves a `when` preset to an [from, to) window in Utah time. Events overlapping the window match. */
+/**
+ * Resolves a `when` preset to an [from, to) window in Utah time. Events overlapping the window match.
+ * Returns plain UTC Dates: TZDate#toISOString keeps a "-07:00" offset, which breaks the DB's lexical
+ * comparison against stored "...Z" timestamps.
+ */
 export function timeWindow(when: Filters["when"], now = new Date()): { from: Date; to: Date } {
+  const { from, to } = localWindow(when, now);
+  return { from: new Date(from.getTime()), to: new Date(to.getTime()) };
+}
+
+function localWindow(when: Filters["when"], now: Date): { from: Date; to: Date } {
   const local = new TZDate(now, TIME_ZONE);
   const day = startOfDay(local);
   switch (when) {

@@ -16,6 +16,18 @@ npm run pipeline             # one full scrape → data/pullup.db
 npm run dev                  # web app + background worker on http://localhost:3000
 ```
 
+## Moving data to production
+
+Event data never goes in git. To copy your local events to a deployment:
+
+```bash
+npm run snapshot   # writes data/pullup-snapshot.db (git-ignored)
+curl -X POST -H "x-admin-secret: $ADMIN_SECRET" -H "Content-Type: application/octet-stream" \
+  --data-binary @data/pullup-snapshot.db https://<your-domain>/api/admin/import
+```
+
+This replaces the deployment's sources and events (pipeline logs are kept). Its worker then keeps them fresh.
+
 ## Layout
 
 - `src/pipeline/connectors/` — one adapter per source type (`Connector` interface in `types.ts`)

@@ -14,7 +14,9 @@ let lastCall = 0;
  * Cached forever (including misses). Serialized to Nominatim's 1 request/second policy.
  */
 export async function geocode(query: string): Promise<Point | null> {
-  const key = query.trim().toLowerCase().replace(/\s+/g, " ");
+  // Parentheticals ("Natural History Museum of Utah (NHMU)", "(Room 210)") confuse Nominatim.
+  query = query.replace(/\([^)]*\)/g, " ").replace(/\s+,/g, ",").replace(/\s+/g, " ").trim();
+  const key = query.toLowerCase();
   if (!key) return null;
   const db = getDb();
   const cached = db.select().from(schema.geocodeCache).where(eq(schema.geocodeCache.query, key)).get();

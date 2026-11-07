@@ -6,6 +6,8 @@ import { getText } from "./http";
 import type { Connector } from "./types";
 
 const WINDOW_DAYS = 30;
+/** Long-running entries ("applications open", exhibits spanning weeks) aren't something you pull up to tonight. */
+const MAX_DURATION_MS = 3 * 864e5;
 
 const pv = (v: ParameterValue | undefined): string =>
   v == null ? "" : typeof v === "string" ? v : String(v.val ?? "");
@@ -37,6 +39,7 @@ function fromIcs(body: string, feedUrl: string): RawItem[] {
 
     for (const occ of occurrences) {
       if (!occ.start || occ.start < from || occ.start > to) continue;
+      if (occ.end && occ.end.getTime() - occ.start.getTime() > MAX_DURATION_MS) continue;
       const title = pv(ev.summary).trim();
       if (!title) continue;
       const description = pv(ev.description).replace(/<[^>]+>/g, " ").trim();
