@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { type Filters, parseFilters } from "@/lib/events/filters";
 import { dayDate, dayKey, dayLabel } from "@/lib/events/format";
 import { type EventView, queryEvents } from "@/lib/events/query";
-import { semanticFilter } from "@/lib/search/semantic";
+import { topicFilter } from "@/lib/search/topic";
 
 const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5";
 
@@ -33,9 +33,9 @@ export default function Home(props: PageProps<"/">) {
 async function EventList({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const filters = parseFilters(await searchParams);
   await connection(); // live data: always render at request time, never at build
-  // Search words are matched by meaning (embeddings), not exact text; everything else filters in SQL.
+  // Search words are matched by meaning (Claude Haiku), not exact text; everything else filters in SQL.
   const candidates = queryEvents({ ...filters, q: undefined });
-  const events = filters.q ? await semanticFilter(filters.q, candidates) : candidates;
+  const events = filters.q ? await topicFilter(filters.q, candidates) : candidates;
   const now = requestTime();
 
   if (!events.length) return <EmptyState filtered={hasFilters(filters) || !!filters.maybe} />;
