@@ -11,6 +11,9 @@ import { TIME_ZONE } from "@/shared/time";
 export const WHEN = ["now", "today", "tonight", "tomorrow", "weekend", "week", "month"] as const;
 export const SORTS = ["soon", "popular", "near", "new"] as const;
 
+/** Radius for a named-place search ("near Sugar House"). */
+export const NEAR_RADIUS_KM = 5;
+
 /** Comma-separated list param; unknown values are dropped rather than failing the whole parse. */
 const csv = <T extends string>(item: z.ZodType<T>) =>
   z
@@ -20,7 +23,12 @@ const csv = <T extends string>(item: z.ZodType<T>) =>
     .transform((s) => (s ? s.split(",") : []).filter((x): x is T => item.safeParse(x).success));
 
 export const FiltersSchema = z.object({
+  /** Topic words for search ranking (AI-extracted from `ask`, or typed directly). */
   q: z.string().trim().max(200).optional().catch(undefined),
+  /** The search text exactly as typed, shown back in the search box. */
+  ask: z.string().trim().max(200).optional().catch(undefined),
+  /** Place name the search was narrowed to; with lat/lng it limits results to NEAR_RADIUS_KM. */
+  near: z.string().trim().max(80).optional().catch(undefined),
   when: z.enum(WHEN).catch("week").default("week"),
   cat: csv(Category),
   vibe: csv(VibeTag),
@@ -44,6 +52,8 @@ export function parseFilters(params: ParamsLike): Filters {
 export function filtersToParams(f: Partial<Filters>): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set("q", f.q);
+  if (f.ask) p.set("ask", f.ask);
+  if (f.near) p.set("near", f.near);
   if (f.when && f.when !== "week") p.set("when", f.when);
   if (f.cat?.length) p.set("cat", f.cat.join(","));
   if (f.vibe?.length) p.set("vibe", f.vibe.join(","));

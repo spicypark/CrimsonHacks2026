@@ -2,7 +2,7 @@ import { and, eq, gt, gte, inArray, lt, ne } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/client";
 import { distanceM } from "@/lib/geo/geocode";
 import type { Category, Engagement, SourceType, VibeTag } from "@/shared/event";
-import { type Filters, timeWindow } from "./filters";
+import { type Filters, NEAR_RADIUS_KM, timeWindow } from "./filters";
 
 import { CONFIDENCE_THRESHOLD } from "./format";
 export { CONFIDENCE_THRESHOLD };
@@ -76,12 +76,15 @@ export function queryEvents(f: Filters, opts: { ids?: string[]; now?: Date } = {
   const sources = sourcesFor(rows.map((r) => r.id));
   const here = f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : null;
 
-  const views = rows.map(({ createdAt, ...r }) => ({
-    ...r,
-    createdAt,
-    sources: sources.get(r.id) ?? [],
-    distanceKm: here && r.lat != null && r.lng != null ? distanceM(here, { lat: r.lat, lng: r.lng }) / 1000 : null,
-  }));
+  const views = rows
+    .map(({ createdAt, ...r }) => ({
+      ...r,
+      createdAt,
+      sources: sources.get(r.id) ?? [],
+      distanceKm: here && r.lat != null && r.lng != null ? distanceM(here, { lat: r.lat, lng: r.lng }) / 1000 : null,
+    }))
+    // A named place ("near Sugar House") is a hard radius; plain lat/lng (sort by nearest) is not.
+    .filter((v) => !(f.near && here) || (v.distanceKm != null && v.distanceKm <= NEAR_RADIUS_KM));
 
   const bySoon = (a: (typeof views)[number], b: (typeof views)[number]) => a.startsAt.localeCompare(b.startsAt);
   if (opts.ids) {
@@ -95,7 +98,8 @@ export function queryEvents(f: Filters, opts: { ids?: string[]; now?: Date } = {
   return views.map(({ createdAt: _, ...v }) => v);
 }
 
-/** Plain keyword match (every word must appear). Natural-language search replaces this via `ids`. */
+/** Plain keyword match (every word must appear). Used when semantic search is unavailable. */
+export { matchesKeywords };
 function matchesKeywords(q: string | undefined, haystack: string): boolean {
   if (!q) return true;
   const text = haystack.toLowerCase();
