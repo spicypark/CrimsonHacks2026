@@ -4,6 +4,7 @@ import { ArrowDownUp, Check, Loader2, MapPin, Search, SlidersHorizontal, X } fro
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 import { CATEGORY_VISUAL } from "@/components/events/category-visual";
+import { ScrollRow } from "@/components/scroll-row";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -318,9 +319,8 @@ export function FilterBar() {
             </button>
           )}
         </div>
-  
-        {/* The fade on the right hints there's more to scroll. */}
-        <div className="-mx-4 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] sm:mx-0 sm:-mr-6 sm:pr-6 sm:pl-0 [mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)]">
+
+        <ScrollRow label="filters" className="-mx-4 flex-1 sm:mx-0" innerClassName="gap-2 px-4 py-0.5 sm:px-0">
           <button
             type="button"
             aria-pressed={!!filters.free}
@@ -330,10 +330,10 @@ export function FilterBar() {
             {filters.free && <Check className="size-4" aria-hidden />}
             Free
           </button>
-  
+
           <span aria-hidden className="mx-1 h-6 w-px shrink-0 bg-border" />
-  
-          <div role="group" aria-label="Category" className="flex gap-2 pr-8">
+
+          <div role="group" aria-label="Category" className="flex gap-2">
             {categories.map((c) => {
               const on = filters.cat.includes(c);
               const Icon = CATEGORY_VISUAL[c].icon;
@@ -351,7 +351,7 @@ export function FilterBar() {
               );
             })}
           </div>
-        </div>
+        </ScrollRow>
       </div>
 
       {geoError && (

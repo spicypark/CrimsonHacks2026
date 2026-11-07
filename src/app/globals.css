@@ -200,3 +200,13 @@
 @media (prefers-reduced-motion: reduce) {
   .logo-sun { animation: none; transition: none; }
 }
+
+/* Edge fades for <ScrollRow>: a side fades only while there's more to scroll that way. */
+@property --fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.scroll-fade {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+  transition: --fade-l 200ms ease, --fade-r 200ms ease;
+}
+.scroll-fade[data-fade-left] { --fade-l: 3.5rem; }
+.scroll-fade[data-fade-right] { --fade-r: 3.5rem; }
